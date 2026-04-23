@@ -171,6 +171,10 @@ var MessagesJaJP = map[string]string{
 	"config.key_validation_concurrency_desc": "バックグラウンドで無効なキーを検証する際の並行数。SQLiteや低性能環境では20以下を維持し、データ不整合を回避してください。",
 	"config.key_validation_timeout":          "キー検証タイムアウト（秒）",
 	"config.key_validation_timeout_desc":     "バックグラウンドで単一キーを検証する際のAPIリクエストタイムアウト（秒）。",
+	"config.key_selection_strategy":          "キー選択戦略",
+	"config.key_selection_strategy_desc":     "キーのローテーション戦略。round-robin：順番にキーを選択；sticky：前回成功したキーを優先使用（キャッシュアフィニティ）、失敗時は自動的に別のキーに切り替え。",
+	"config.cooldown_duration_seconds":       "レート制限クールダウン（秒）",
+	"config.cooldown_duration_seconds_desc":  "上流が429（リクエスト過多）を返した場合、キーを自動的に一時停止する時間（秒）。クールダウン中はキーが選択されず、終了後に自動回復します。0で無効。",
 
 	// Category labels
 	"config.category.basic":   "基本設定",

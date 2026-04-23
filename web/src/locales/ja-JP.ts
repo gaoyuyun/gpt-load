@@ -547,6 +547,8 @@ export default {
     resetSettings: "設定をリセット",
     importSettings: "設定インポート",
     exportSettings: "設定エクスポート",
+    strategyRoundRobin: "ラウンドロビン - 順番にキーを選択",
+    strategySticky: "スティッキー - 前回成功したキーを優先使用",
     settingsSaved: "設定が保存されました",
     settingsReset: "設定がリセットされました",
     confirmReset: "すべての設定をリセットしますか？",

@@ -546,6 +546,8 @@ export default {
     resetSettings: "Reset Settings",
     importSettings: "Import Settings",
     exportSettings: "Export Settings",
+    strategyRoundRobin: "Round Robin - Select keys sequentially",
+    strategySticky: "Sticky - Prefer the last successfully used key",
     settingsSaved: "Settings saved",
     settingsReset: "Settings reset",
     confirmReset: "Confirm reset all settings?",

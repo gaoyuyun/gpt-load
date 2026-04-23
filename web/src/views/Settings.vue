@@ -12,6 +12,7 @@ import {
   NIcon,
   NInput,
   NInputNumber,
+  NSelect,
   NSpace,
   NSwitch,
   NTooltip,
@@ -154,6 +155,15 @@ function generateValidationRules(item: Setting): FormItemRule[] {
                   v-else-if="item.key === 'proxy_keys'"
                   v-model="form[item.key] as string"
                   :placeholder="t('settings.inputContent')"
+                  size="small"
+                />
+                <n-select
+                  v-else-if="item.key === 'key_selection_strategy'"
+                  v-model:value="form[item.key] as string"
+                  :options="[
+                    { label: t('settings.strategyRoundRobin'), value: 'round-robin' },
+                    { label: t('settings.strategySticky'), value: 'sticky' },
+                  ]"
                   size="small"
                 />
                 <n-input

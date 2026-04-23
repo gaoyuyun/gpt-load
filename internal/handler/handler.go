@@ -9,7 +9,9 @@ import (
 	"gpt-load/internal/config"
 	"gpt-load/internal/encryption"
 	"gpt-load/internal/i18n"
+	"gpt-load/internal/keypool"
 	"gpt-load/internal/services"
+	"gpt-load/internal/store"
 	"gpt-load/internal/types"
 
 	"github.com/gin-gonic/gin"
@@ -33,6 +35,8 @@ type Server struct {
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
 	EncryptionSvc              encryption.Service
+	KeyProvider                *keypool.KeyProvider
+	Store                      store.Store
 }
 
 // NewServerParams defines the dependencies for the NewServer constructor.
@@ -52,6 +56,8 @@ type NewServerParams struct {
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
 	EncryptionSvc              encryption.Service
+	KeyProvider                *keypool.KeyProvider
+	Store                      store.Store
 }
 
 // NewServer creates a new handler instance with dependencies injected by dig.
@@ -71,6 +77,8 @@ func NewServer(params NewServerParams) *Server {
 		LogService:                 params.LogService,
 		CommonHandler:              params.CommonHandler,
 		EncryptionSvc:              params.EncryptionSvc,
+		KeyProvider:                params.KeyProvider,
+		Store:                      params.Store,
 	}
 }
 

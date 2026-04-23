@@ -21,6 +21,8 @@ export interface APIKey {
   key_value: string;
   notes?: string;
   status: KeyStatus;
+  priority: number;
+  is_manually_disabled: boolean;
   request_count: number;
   failure_count: number;
   last_used_at?: string;

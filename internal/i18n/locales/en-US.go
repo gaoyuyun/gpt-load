@@ -171,6 +171,10 @@ var MessagesEnUS = map[string]string{
 	"config.key_validation_concurrency_desc": "Concurrency level for background invalid key validation. Keep below 20 for SQLite or low-performance environments to avoid data consistency issues.",
 	"config.key_validation_timeout":          "Key Validation Timeout (seconds)",
 	"config.key_validation_timeout_desc":     "API request timeout (seconds) when validating a single key in the background.",
+	"config.key_selection_strategy":          "Key Selection Strategy",
+	"config.key_selection_strategy_desc":     "Key rotation strategy. round-robin: select keys sequentially; sticky: prefer the last successfully used key (cache affinity), automatically switch to another key on failure.",
+	"config.cooldown_duration_seconds":       "Rate Limit Cooldown (seconds)",
+	"config.cooldown_duration_seconds_desc":  "When upstream returns 429 (Too Many Requests), automatically pause the key for this duration (seconds). The key won't be selected during cooldown and will recover automatically. Set to 0 to disable.",
 
 	// Category labels
 	"config.category.basic":   "Basic",

@@ -35,10 +35,25 @@ func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemS
 }
 
 // SelectKey 为指定的分组原子性地选择并轮换一个可用的 APIKey。
-func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
+func (p *KeyProvider) SelectKey(groupID uint, group *models.Group, clientIdentifier string) (*models.APIKey, error) {
+	cfg := group.EffectiveConfig
+	strategy := cfg.KeySelectionStrategy
+
+	// 1. 如果是 sticky 策略，尝试获取上次成功的 key
+	if strategy == "sticky" && clientIdentifier != "" {
+		lastKeyID, err := p.getLastUsedKey(groupID, clientIdentifier)
+		if err == nil && lastKeyID > 0 {
+			// 检查该 key 是否仍然可用（active 且未冷却）
+			if key, err := p.getKeyIfAvailable(lastKeyID, groupID, cfg.CooldownDurationSeconds); err == nil {
+				return key, nil
+			}
+		}
+	}
+
+	// 2. 按优先级和策略选择 key
 	activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
 
-	// 1. Atomically rotate the key ID from the list
+	// Atomically rotate the key ID from the list
 	keyIDStr, err := p.store.Rotate(activeKeysListKey)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -52,16 +67,29 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 		return nil, fmt.Errorf("failed to parse key ID '%s': %w", keyIDStr, err)
 	}
 
-	// 2. Get key details from HASH
+	// 3. 检查 key 是否在冷却中
+	if p.isKeyCoolingDown(uint(keyID)) {
+		// 如果在冷却中，递归尝试下一个 key（最多尝试 10 次避免无限循环）
+		return p.selectNextAvailableKey(groupID, group, clientIdentifier, 0)
+	}
+
+	// 4. Get key details from HASH
 	keyHashKey := fmt.Sprintf("key:%d", keyID)
 	keyDetails, err := p.store.HGetAll(keyHashKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get key details for key ID %d: %w", keyID, err)
 	}
 
-	// 3. Manually unmarshal the map into an APIKey struct
+	// 5. Manually unmarshal the map into an APIKey struct
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
+	priority, _ := strconv.Atoi(keyDetails["priority"])
+	isManuallyDisabled := keyDetails["is_manually_disabled"] == "true"
+
+	// 6. 如果 key 被手动禁用，跳过
+	if isManuallyDisabled {
+		return p.selectNextAvailableKey(groupID, group, clientIdentifier, 0)
+	}
 
 	// Decrypt the key value for use by channels
 	encryptedKeyValue := keyDetails["key_string"]
@@ -76,19 +104,26 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 	}
 
 	apiKey := &models.APIKey{
-		ID:           uint(keyID),
-		KeyValue:     decryptedKeyValue,
-		Status:       keyDetails["status"],
-		FailureCount: failureCount,
-		GroupID:      groupID,
-		CreatedAt:    time.Unix(createdAt, 0),
+		ID:                 uint(keyID),
+		KeyValue:           decryptedKeyValue,
+		Status:             keyDetails["status"],
+		Priority:           priority,
+		IsManuallyDisabled: isManuallyDisabled,
+		FailureCount:       failureCount,
+		GroupID:            groupID,
+		CreatedAt:          time.Unix(createdAt, 0),
+	}
+
+	// 7. 如果是 sticky 策略，记录本次使用的 key
+	if strategy == "sticky" && clientIdentifier != "" {
+		p.setLastUsedKey(groupID, clientIdentifier, uint(keyID))
 	}
 
 	return apiKey, nil
 }
 
 // UpdateStatus 异步地提交一个 Key 状态更新任务。
-func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool, errorMessage string) {
+func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool, errorMessage string, statusCode int) {
 	go func() {
 		keyHashKey := fmt.Sprintf("key:%d", apiKey.ID)
 		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", group.ID)
@@ -104,6 +139,35 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 					"error": errorMessage,
 				}).Debug("Uncounted error, skipping failure handling")
 			} else {
+				// 检查是否为 402 支付错误，如果是则永久禁用
+				if app_errors.IsPaymentRequiredError(statusCode, errorMessage) {
+					logrus.WithFields(logrus.Fields{
+						"keyID":      apiKey.ID,
+						"statusCode": statusCode,
+						"error":      errorMessage,
+					}).Warn("Payment required error detected, permanently disabling key")
+					if err := p.permanentlyDisableKey(apiKey.ID, keyHashKey, activeKeysListKey); err != nil {
+						logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to permanently disable key")
+					}
+					return
+				}
+
+				// 检查是否为 429 限流错误，如果是则冷却
+				if app_errors.IsRateLimitError(statusCode, errorMessage) {
+					cooldownSeconds := group.EffectiveConfig.CooldownDurationSeconds
+					if cooldownSeconds > 0 {
+						logrus.WithFields(logrus.Fields{
+							"keyID":            apiKey.ID,
+							"cooldownSeconds":  cooldownSeconds,
+							"statusCode":       statusCode,
+						}).Info("Rate limit error detected, setting key cooldown")
+						if err := p.SetKeyCooldown(apiKey.ID, cooldownSeconds); err != nil {
+							logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to set key cooldown")
+						}
+					}
+				}
+
+				// 正常失败处理
 				if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
 					logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
 				}
@@ -179,6 +243,38 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 			if err := p.store.LPush(activeKeysListKey, keyID); err != nil {
 				return fmt.Errorf("failed to LPush key back to active list: %w", err)
 			}
+		}
+
+		return nil
+	})
+}
+
+// permanentlyDisableKey 永久禁用 key（用于 402 等支付错误）
+func (p *KeyProvider) permanentlyDisableKey(keyID uint, keyHashKey, activeKeysListKey string) error {
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		var key models.APIKey
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, keyID).Error; err != nil {
+			return fmt.Errorf("failed to lock key %d for update: %w", keyID, err)
+		}
+
+		// 设置为 invalid 状态，不再自动恢复
+		updates := map[string]any{
+			"status":        models.KeyStatusInvalid,
+			"failure_count": key.FailureCount + 1,
+		}
+
+		if err := tx.Model(&key).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update key in DB: %w", err)
+		}
+
+		// 从 active_keys 列表中移除
+		if err := p.store.LRem(activeKeysListKey, 0, keyID); err != nil {
+			return fmt.Errorf("failed to LRem key from active list: %w", err)
+		}
+
+		// 更新缓存
+		if err := p.store.HSet(keyHashKey, updates); err != nil {
+			return fmt.Errorf("failed to update key status in store: %w", err)
 		}
 
 		return nil
@@ -631,12 +727,14 @@ func (p *KeyProvider) removeKeyFromStore(keyID, groupID uint) error {
 // apiKeyToMap converts an APIKey model to a map for HSET.
 func (p *KeyProvider) apiKeyToMap(key *models.APIKey) map[string]any {
 	return map[string]any{
-		"id":            fmt.Sprint(key.ID),
-		"key_string":    key.KeyValue,
-		"status":        key.Status,
-		"failure_count": key.FailureCount,
-		"group_id":      key.GroupID,
-		"created_at":    key.CreatedAt.Unix(),
+		"id":                   fmt.Sprint(key.ID),
+		"key_string":           key.KeyValue,
+		"status":               key.Status,
+		"priority":             key.Priority,
+		"is_manually_disabled": key.IsManuallyDisabled,
+		"failure_count":        key.FailureCount,
+		"group_id":             key.GroupID,
+		"created_at":           key.CreatedAt.Unix(),
 	}
 }
 
@@ -648,3 +746,186 @@ func pluckIDs(keys []models.APIKey) []uint {
 	}
 	return ids
 }
+
+// getLastUsedKey 获取客户端上次成功使用的 key ID
+func (p *KeyProvider) getLastUsedKey(groupID uint, clientIdentifier string) (uint, error) {
+	key := fmt.Sprintf("sticky:%d:%s", groupID, clientIdentifier)
+	data, err := p.store.Get(key)
+	if err != nil {
+		return 0, err
+	}
+	keyID, err := strconv.ParseUint(string(data), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return uint(keyID), nil
+}
+
+// setLastUsedKey 记录客户端本次成功使用的 key ID
+func (p *KeyProvider) setLastUsedKey(groupID uint, clientIdentifier string, keyID uint) {
+	key := fmt.Sprintf("sticky:%d:%s", groupID, clientIdentifier)
+	// 设置 24 小时过期
+	p.store.Set(key, []byte(fmt.Sprint(keyID)), 24*time.Hour)
+}
+
+// getKeyIfAvailable 检查指定 key 是否可用（active 且未冷却）
+func (p *KeyProvider) getKeyIfAvailable(keyID uint, groupID uint, cooldownSeconds int) (*models.APIKey, error) {
+	// 检查是否在冷却中
+	if p.isKeyCoolingDown(keyID) {
+		return nil, fmt.Errorf("key is cooling down")
+	}
+
+	keyHashKey := fmt.Sprintf("key:%d", keyID)
+	keyDetails, err := p.store.HGetAll(keyHashKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查状态
+	if keyDetails["status"] != models.KeyStatusActive {
+		return nil, fmt.Errorf("key is not active")
+	}
+
+	// 检查是否手动禁用
+	if keyDetails["is_manually_disabled"] == "true" {
+		return nil, fmt.Errorf("key is manually disabled")
+	}
+
+	// 解密并返回
+	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
+	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
+	priority, _ := strconv.Atoi(keyDetails["priority"])
+
+	encryptedKeyValue := keyDetails["key_string"]
+	decryptedKeyValue, err := p.encryptionSvc.Decrypt(encryptedKeyValue)
+	if err != nil {
+		decryptedKeyValue = encryptedKeyValue
+	}
+
+	return &models.APIKey{
+		ID:                 keyID,
+		KeyValue:           decryptedKeyValue,
+		Status:             keyDetails["status"],
+		Priority:           priority,
+		IsManuallyDisabled: false,
+		FailureCount:       failureCount,
+		GroupID:            groupID,
+		CreatedAt:          time.Unix(createdAt, 0),
+	}, nil
+}
+
+// selectNextAvailableKey 递归选择下一个可用的 key（避免冷却中的 key）
+func (p *KeyProvider) selectNextAvailableKey(groupID uint, group *models.Group, clientIdentifier string, attempt int) (*models.APIKey, error) {
+	const maxAttempts = 10
+	if attempt >= maxAttempts {
+		return nil, app_errors.ErrNoActiveKeys
+	}
+
+	activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
+	keyIDStr, err := p.store.Rotate(activeKeysListKey)
+	if err != nil {
+		return nil, app_errors.ErrNoActiveKeys
+	}
+
+	keyID, err := strconv.ParseUint(keyIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse key ID: %w", err)
+	}
+
+	// 检查是否在冷却中或手动禁用
+	if p.isKeyCoolingDown(uint(keyID)) {
+		return p.selectNextAvailableKey(groupID, group, clientIdentifier, attempt+1)
+	}
+
+	keyHashKey := fmt.Sprintf("key:%d", keyID)
+	keyDetails, err := p.store.HGetAll(keyHashKey)
+	if err != nil {
+		return p.selectNextAvailableKey(groupID, group, clientIdentifier, attempt+1)
+	}
+
+	if keyDetails["is_manually_disabled"] == "true" {
+		return p.selectNextAvailableKey(groupID, group, clientIdentifier, attempt+1)
+	}
+
+	// 构造返回的 key
+	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
+	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
+	priority, _ := strconv.Atoi(keyDetails["priority"])
+
+	encryptedKeyValue := keyDetails["key_string"]
+	decryptedKeyValue, err := p.encryptionSvc.Decrypt(encryptedKeyValue)
+	if err != nil {
+		decryptedKeyValue = encryptedKeyValue
+	}
+
+	return &models.APIKey{
+		ID:                 uint(keyID),
+		KeyValue:           decryptedKeyValue,
+		Status:             keyDetails["status"],
+		Priority:           priority,
+		IsManuallyDisabled: false,
+		FailureCount:       failureCount,
+		GroupID:            groupID,
+		CreatedAt:          time.Unix(createdAt, 0),
+	}, nil
+}
+
+// isKeyCoolingDown 检查 key 是否在冷却中
+func (p *KeyProvider) isKeyCoolingDown(keyID uint) bool {
+	cooldownKey := fmt.Sprintf("cooldown:%d", keyID)
+	exists, err := p.store.Exists(cooldownKey)
+	if err != nil {
+		return false
+	}
+	return exists
+}
+
+// SetKeyCooldown 将 key 设置为冷却状态
+func (p *KeyProvider) SetKeyCooldown(keyID uint, durationSeconds int) error {
+	if durationSeconds <= 0 {
+		return nil
+	}
+	cooldownKey := fmt.Sprintf("cooldown:%d", keyID)
+	return p.store.Set(cooldownKey, []byte("1"), time.Duration(durationSeconds)*time.Second)
+}
+
+// SetKeyManuallyDisabled 手动启用/禁用 key
+func (p *KeyProvider) SetKeyManuallyDisabled(keyID uint, groupID uint, disabled bool) error {
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		var key models.APIKey
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, keyID).Error; err != nil {
+			return fmt.Errorf("failed to lock key %d: %w", keyID, err)
+		}
+
+		updates := map[string]any{"is_manually_disabled": disabled}
+		if err := tx.Model(&key).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update key in DB: %w", err)
+		}
+
+		keyHashKey := fmt.Sprintf("key:%d", keyID)
+		if err := p.store.HSet(keyHashKey, updates); err != nil {
+			return fmt.Errorf("failed to update key in store: %w", err)
+		}
+
+		// 如果是禁用，从 active_keys 列表中移除
+		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
+		if disabled {
+			if err := p.store.LRem(activeKeysListKey, 0, keyID); err != nil {
+				return fmt.Errorf("failed to remove key from active list: %w", err)
+			}
+		} else {
+			// 如果是启用且状态为 active，加入 active_keys 列表
+			if key.Status == models.KeyStatusActive {
+				if err := p.store.LRem(activeKeysListKey, 0, keyID); err != nil {
+					return fmt.Errorf("failed to LRem before LPush: %w", err)
+				}
+				if err := p.store.LPush(activeKeysListKey, keyID); err != nil {
+					return fmt.Errorf("failed to add key to active list: %w", err)
+				}
+			}
+		}
+
+		return nil
+	})
+}
+

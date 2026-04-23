@@ -142,6 +142,8 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		keys.POST("/validate-group", serverHandler.ValidateGroupKeys)
 		keys.POST("/test-multiple", serverHandler.TestMultipleKeys)
 		keys.PUT("/:id/notes", serverHandler.UpdateKeyNotes)
+		keys.PUT("/:id/priority", serverHandler.UpdateKeyPriority)
+		keys.POST("/set-manually-disabled", serverHandler.SetKeyManuallyDisabled)
 	}
 
 	// Tasks

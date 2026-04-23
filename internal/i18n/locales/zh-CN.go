@@ -171,6 +171,10 @@ var MessagesZhCN = map[string]string{
 	"config.key_validation_concurrency_desc": "后台定时验证无效 Key 时的并发数，如果使用SQLite或者运行环境性能不佳，请尽量保证20以下，避免过高的并发导致数据不一致问题。",
 	"config.key_validation_timeout":          "密钥验证超时（秒）",
 	"config.key_validation_timeout_desc":     "后台定时验证单个 Key 时的 API 请求超时时间（秒）。",
+	"config.key_selection_strategy":          "密钥选择策略",
+	"config.key_selection_strategy_desc":     "密钥轮换策略。round-robin：按顺序轮询选择密钥；sticky：优先使用上次成功的密钥（缓存亲和性），失败后自动切换到其他可用密钥。",
+	"config.cooldown_duration_seconds":       "限流冷却时长（秒）",
+	"config.cooldown_duration_seconds_desc":  "当上游返回 429（请求过多）错误时，自动暂停使用该密钥的时长（秒）。冷却期间该密钥不会被选中，冷却结束后自动恢复。设为 0 表示禁用冷却机制。",
 
 	// Category labels
 	"config.category.basic":   "基础参数",

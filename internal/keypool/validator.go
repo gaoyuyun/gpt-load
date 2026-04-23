@@ -66,10 +66,12 @@ func (s *KeyValidator) ValidateSingleKey(key *models.APIKey, group *models.Group
 	isValid, validationErr := ch.ValidateKey(ctx, key, group)
 
 	var errorMsg string
+	var statusCode int
 	if !isValid && validationErr != nil {
 		errorMsg = validationErr.Error()
+		statusCode = 500 // 默认错误码
 	}
-	s.keypoolProvider.UpdateStatus(key, group, isValid, errorMsg)
+	s.keypoolProvider.UpdateStatus(key, group, isValid, errorMsg, statusCode)
 
 	if !isValid {
 		logrus.WithFields(logrus.Fields{

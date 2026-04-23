@@ -35,11 +35,13 @@ type SystemSettings struct {
 	ProxyURL              string `json:"proxy_url" name:"config.proxy_url" category:"config.category.request" desc:"config.proxy_url_desc"`
 
 	// 密钥配置
-	MaxRetries                   int `json:"max_retries" default:"3" name:"config.max_retries" category:"config.category.key" desc:"config.max_retries_desc" validate:"required,min=0"`
-	BlacklistThreshold           int `json:"blacklist_threshold" default:"3" name:"config.blacklist_threshold" category:"config.category.key" desc:"config.blacklist_threshold_desc" validate:"required,min=0"`
-	KeyValidationIntervalMinutes int `json:"key_validation_interval_minutes" default:"60" name:"config.key_validation_interval" category:"config.category.key" desc:"config.key_validation_interval_desc" validate:"required,min=1"`
-	KeyValidationConcurrency     int `json:"key_validation_concurrency" default:"10" name:"config.key_validation_concurrency" category:"config.category.key" desc:"config.key_validation_concurrency_desc" validate:"required,min=1"`
-	KeyValidationTimeoutSeconds  int `json:"key_validation_timeout_seconds" default:"20" name:"config.key_validation_timeout" category:"config.category.key" desc:"config.key_validation_timeout_desc" validate:"required,min=1"`
+	MaxRetries                   int    `json:"max_retries" default:"3" name:"config.max_retries" category:"config.category.key" desc:"config.max_retries_desc" validate:"required,min=0"`
+	BlacklistThreshold           int    `json:"blacklist_threshold" default:"3" name:"config.blacklist_threshold" category:"config.category.key" desc:"config.blacklist_threshold_desc" validate:"required,min=0"`
+	KeyValidationIntervalMinutes int    `json:"key_validation_interval_minutes" default:"60" name:"config.key_validation_interval" category:"config.category.key" desc:"config.key_validation_interval_desc" validate:"required,min=1"`
+	KeyValidationConcurrency     int    `json:"key_validation_concurrency" default:"10" name:"config.key_validation_concurrency" category:"config.category.key" desc:"config.key_validation_concurrency_desc" validate:"required,min=1"`
+	KeyValidationTimeoutSeconds  int    `json:"key_validation_timeout_seconds" default:"20" name:"config.key_validation_timeout" category:"config.category.key" desc:"config.key_validation_timeout_desc" validate:"required,min=1"`
+	KeySelectionStrategy         string `json:"key_selection_strategy" default:"round-robin" name:"config.key_selection_strategy" category:"config.category.key" desc:"config.key_selection_strategy_desc" validate:"required"`
+	CooldownDurationSeconds      int    `json:"cooldown_duration_seconds" default:"60" name:"config.cooldown_duration_seconds" category:"config.category.key" desc:"config.cooldown_duration_seconds_desc" validate:"required,min=0"`
 
 	// For cache
 	ProxyKeysMap map[string]struct{} `json:"-"`

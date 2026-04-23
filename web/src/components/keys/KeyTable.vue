@@ -21,6 +21,7 @@ import {
   NEmpty,
   NIcon,
   NInput,
+  NInputNumber,
   NModal,
   NSelect,
   NSpace,
@@ -97,6 +98,10 @@ const deleteDialogShow = ref(false);
 const notesDialogShow = ref(false);
 const editingKey = ref<KeyRow | null>(null);
 const editingNotes = ref("");
+
+// 优先级编辑相关
+const priorityDialogShow = ref(false);
+const editingPriority = ref(0);
 
 watch(
   () => props.selectedGroup,
@@ -322,6 +327,67 @@ async function saveKeyNotes() {
     console.error("Update notes failed", error);
   }
 }
+
+// 编辑密钥优先级
+function editKeyPriority(key: KeyRow) {
+  editingKey.value = key;
+  editingPriority.value = key.priority || 0;
+  priorityDialogShow.value = true;
+}
+
+// 保存优先级
+async function saveKeyPriority() {
+  if (!editingKey.value) {
+    return;
+  }
+
+  try {
+    const priority = Math.max(0, Math.min(100, editingPriority.value));
+    await keysApi.updateKeyPriority(editingKey.value.id, priority);
+    editingKey.value.priority = priority;
+    window.$message.success(t("keys.priorityUpdated"));
+    priorityDialogShow.value = false;
+    await loadKeys();
+  } catch (error) {
+    console.error("Update priority failed", error);
+  }
+}
+
+// 切换密钥手动禁用状态
+async function toggleManuallyDisabled(key: KeyRow) {
+  if (!props.selectedGroup?.id) {
+    return;
+  }
+
+  const willDisable = !key.is_manually_disabled;
+  const d = dialog.warning({
+    title: willDisable ? t("keys.disableKey") : t("keys.enableKey"),
+    content: willDisable
+      ? t("keys.confirmDisableKey", { key: maskKey(key.key_value) })
+      : t("keys.confirmEnableKey", { key: maskKey(key.key_value) }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      if (!props.selectedGroup?.id) {
+        return;
+      }
+
+      d.loading = true;
+
+      try {
+        await keysApi.setKeyManuallyDisabled(props.selectedGroup.id, [key.id], willDisable);
+        window.$message.success(willDisable ? t("keys.keyDisabled") : t("keys.keyEnabled"));
+        await loadKeys();
+        triggerSyncOperationRefresh(props.selectedGroup.name, "TOGGLE_DISABLED");
+      } catch (error) {
+        console.error("Toggle manually disabled failed", error);
+      } finally {
+        d.loading = false;
+      }
+    },
+  });
+}
+
 
 async function restoreKey(key: KeyRow) {
   if (!props.selectedGroup?.id || !key.key_value || isRestoring.value) {
@@ -697,18 +763,38 @@ function resetPage() {
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
               <div class="key-section">
-                <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
-                  <template #icon>
-                    <n-icon :component="CheckmarkCircle" />
-                  </template>
-                  {{ t("keys.validShort") }}
-                </n-tag>
-                <n-tag v-else :bordered="false" round>
-                  <template #icon>
-                    <n-icon :component="AlertCircleOutline" />
-                  </template>
-                  {{ t("keys.invalidShort") }}
-                </n-tag>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
+                    <template #icon>
+                      <n-icon :component="CheckmarkCircle" />
+                    </template>
+                    {{ t("keys.validShort") }}
+                  </n-tag>
+                  <n-tag v-else :bordered="false" round>
+                    <template #icon>
+                      <n-icon :component="AlertCircleOutline" />
+                    </template>
+                    {{ t("keys.invalidShort") }}
+                  </n-tag>
+                  <n-tag
+                    v-if="key.is_manually_disabled"
+                    type="error"
+                    :bordered="false"
+                    size="small"
+                    round
+                  >
+                    {{ t("keys.manuallyDisabled") }}
+                  </n-tag>
+                  <n-tag
+                    :bordered="false"
+                    size="small"
+                    style="cursor: pointer;"
+                    @click="editKeyPriority(key)"
+                    :title="t('keys.editPriority')"
+                  >
+                    {{ t("keys.priority") }}: {{ key.priority || 0 }}
+                  </n-tag>
+                </div>
                 <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
                 <div class="quick-actions">
                   <n-button
@@ -775,6 +861,16 @@ function resetPage() {
                   type="warning"
                 >
                   {{ t("keys.restoreShort") }}
+                </n-button>
+                <n-button
+                  round
+                  tertiary
+                  size="tiny"
+                  :type="key.is_manually_disabled ? 'success' : 'warning'"
+                  @click="toggleManuallyDisabled(key)"
+                  :title="key.is_manually_disabled ? t('keys.enableKey') : t('keys.disableKey')"
+                >
+                  {{ key.is_manually_disabled ? t("common.enable") : t("common.disable") }}
                 </n-button>
                 <n-button
                   round
@@ -857,6 +953,21 @@ function resetPage() {
     <template #action>
       <n-button @click="notesDialogShow = false">{{ t("common.cancel") }}</n-button>
       <n-button type="primary" @click="saveKeyNotes">{{ t("common.save") }}</n-button>
+    </template>
+  </n-modal>
+
+  <!-- 优先级编辑对话框 -->
+  <n-modal v-model:show="priorityDialogShow" preset="dialog" :title="t('keys.editPriority')">
+    <n-input-number
+      v-model:value="editingPriority"
+      :placeholder="t('keys.enterPriority')"
+      :min="0"
+      :max="100"
+      style="width: 100%"
+    />
+    <template #action>
+      <n-button @click="priorityDialogShow = false">{{ t("common.cancel") }}</n-button>
+      <n-button type="primary" @click="saveKeyPriority">{{ t("common.save") }}</n-button>
     </template>
   </n-modal>
 </template>
