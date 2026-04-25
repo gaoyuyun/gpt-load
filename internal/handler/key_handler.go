@@ -47,6 +47,29 @@ func validateKeysText(c *gin.Context, keysText string) bool {
 	return true
 }
 
+func enrichKeyRuntimeStatus(key *models.APIKey, now time.Time) {
+	key.RuntimeStatus = models.KeyRuntimeStatusActive
+	key.CooldownRemainingSeconds = 0
+	key.StatusReason = ""
+
+	switch {
+	case key.CooldownUntil != nil && key.CooldownUntil.After(now):
+		key.RuntimeStatus = models.KeyRuntimeStatusCooling
+		remainingSeconds := int(key.CooldownUntil.Sub(now).Seconds())
+		if remainingSeconds <= 0 {
+			remainingSeconds = 1
+		}
+		key.CooldownRemainingSeconds = remainingSeconds
+		key.StatusReason = key.LastErrorMessage
+	case key.Status == models.KeyStatusInvalid && key.LastStatusAction == models.KeyActionAutoDisable:
+		key.RuntimeStatus = models.KeyRuntimeStatusAutoDisabled
+		key.StatusReason = key.LastErrorMessage
+	case key.Status == models.KeyStatusInvalid:
+		key.RuntimeStatus = models.KeyRuntimeStatusInvalid
+		key.StatusReason = key.LastErrorMessage
+	}
+}
+
 // findGroupByID is a helper function to find a group by its ID.
 func (s *Server) findGroupByID(c *gin.Context, groupID uint) (*models.Group, bool) {
 	var group models.Group
@@ -222,6 +245,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
 	// Decrypt all keys for display
 	for i := range keys {
 		decryptedValue, err := s.EncryptionSvc.Decrypt(keys[i].KeyValue)
@@ -231,6 +255,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		} else {
 			keys[i].KeyValue = decryptedValue
 		}
+		enrichKeyRuntimeStatus(&keys[i], now)
 	}
 	paginatedResult.Items = keys
 

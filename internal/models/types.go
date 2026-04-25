@@ -13,6 +13,24 @@ const (
 	KeyStatusInvalid = "invalid"
 )
 
+// Key状态动作
+const (
+	KeyActionNone          = ""
+	KeyActionNormalFailure = "normal_failure"
+	KeyActionCooldown      = "cooldown"
+	KeyActionAutoDisable   = "auto_disable"
+	KeyActionDirectFail    = "direct_fail"
+	KeyActionBlacklisted   = "blacklisted"
+)
+
+// Key运行态
+const (
+	KeyRuntimeStatusActive       = "active"
+	KeyRuntimeStatusCooling      = "cooling"
+	KeyRuntimeStatusInvalid      = "invalid"
+	KeyRuntimeStatusAutoDisabled = "auto_disabled"
+)
+
 // SystemSetting 对应 system_settings 表
 type SystemSetting struct {
 	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -123,9 +141,18 @@ type APIKey struct {
 	Notes              string     `gorm:"type:varchar(255);default:''" json:"notes"`
 	RequestCount       int64      `gorm:"not null;default:0" json:"request_count"`
 	FailureCount       int64      `gorm:"not null;default:0" json:"failure_count"`
+	CooldownUntil      *time.Time `gorm:"index" json:"cooldown_until,omitempty"`
+	LastErrorCode      int        `gorm:"not null;default:0" json:"last_error_code"`
+	LastErrorMessage   string     `gorm:"type:text;default:''" json:"last_error_message"`
+	LastStatusAction   string     `gorm:"type:varchar(50);not null;default:''" json:"last_status_action"`
 	LastUsedAt         *time.Time `gorm:"index:idx_api_keys_group_last_used_id,priority:2" json:"last_used_at"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
+
+	// Runtime-only fields for UI display.
+	RuntimeStatus            string `gorm:"-" json:"runtime_status,omitempty"`
+	CooldownRemainingSeconds int    `gorm:"-" json:"cooldown_remaining_seconds,omitempty"`
+	StatusReason             string `gorm:"-" json:"status_reason,omitempty"`
 }
 
 // RequestType 请求类型常量

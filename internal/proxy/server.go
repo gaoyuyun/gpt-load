@@ -232,20 +232,21 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
 		}
 
-		// 使用解析后的错误信息更新密钥状态
-		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError, statusCode)
+		decision := app_errors.ClassifyKeyFailure(statusCode, parsedError, cfg)
 
-		// 判断是否为最后一次尝试
-		isLastAttempt := retryCount >= cfg.MaxRetries
-		requestType := models.RequestTypeRetry
-		if isLastAttempt {
-			requestType = models.RequestTypeFinal
+		// 使用统一分类结果更新密钥状态
+		ps.keyProvider.UpdateStatus(apiKey, group, false, &decision)
+
+		shouldRetry := decision.Retryable && retryCount < cfg.MaxRetries
+		requestType := models.RequestTypeFinal
+		if shouldRetry {
+			requestType = models.RequestTypeRetry
 		}
 
 		ps.logRequest(c, originalGroup, group, apiKey, startTime, statusCode, errors.New(parsedError), isStream, upstreamURL, channelHandler, bodyBytes, requestType)
 
-		// 如果是最后一次尝试，直接返回错误，不再递归
-		if isLastAttempt {
+		// 如果不再重试，直接返回错误
+		if !shouldRetry {
 			var errorJSON map[string]any
 			if err := json.Unmarshal([]byte(errorMessage), &errorJSON); err == nil {
 				c.JSON(statusCode, errorJSON)

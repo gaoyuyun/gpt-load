@@ -6,6 +6,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/config"
 	"gpt-load/internal/encryption"
+	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"time"
 
@@ -68,10 +69,17 @@ func (s *KeyValidator) ValidateSingleKey(key *models.APIKey, group *models.Group
 	var errorMsg string
 	var statusCode int
 	if !isValid && validationErr != nil {
-		errorMsg = validationErr.Error()
-		statusCode = 500 // 默认错误码
+		statusCode, errorMsg = app_errors.ExtractStatusCodeAndMessage(validationErr)
+		if statusCode == 0 {
+			statusCode = 500
+		}
 	}
-	s.keypoolProvider.UpdateStatus(key, group, isValid, errorMsg, statusCode)
+	if isValid {
+		s.keypoolProvider.UpdateStatus(key, group, true, nil)
+	} else {
+		decision := app_errors.ClassifyKeyFailure(statusCode, errorMsg, group.EffectiveConfig)
+		s.keypoolProvider.UpdateStatus(key, group, false, &decision)
+	}
 
 	if !isValid {
 		logrus.WithFields(logrus.Fields{

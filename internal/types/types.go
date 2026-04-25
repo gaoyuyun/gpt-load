@@ -42,6 +42,9 @@ type SystemSettings struct {
 	KeyValidationTimeoutSeconds  int    `json:"key_validation_timeout_seconds" default:"20" name:"config.key_validation_timeout" category:"config.category.key" desc:"config.key_validation_timeout_desc" validate:"required,min=1"`
 	KeySelectionStrategy         string `json:"key_selection_strategy" default:"round-robin" name:"config.key_selection_strategy" category:"config.category.key" desc:"config.key_selection_strategy_desc" validate:"required"`
 	CooldownDurationSeconds      int    `json:"cooldown_duration_seconds" default:"60" name:"config.cooldown_duration_seconds" category:"config.category.key" desc:"config.cooldown_duration_seconds_desc" validate:"required,min=0"`
+	CooldownStatusCodes          string `json:"cooldown_status_codes" default:"429" name:"config.cooldown_status_codes" category:"config.category.key" desc:"config.cooldown_status_codes_desc" validate:"required"`
+	DisableStatusCodes           string `json:"disable_status_codes" default:"402" name:"config.disable_status_codes" category:"config.category.key" desc:"config.disable_status_codes_desc" validate:"required"`
+	DirectFailStatusCodes        string `json:"direct_fail_status_codes" default:"413" name:"config.direct_fail_status_codes" category:"config.category.key" desc:"config.direct_fail_status_codes_desc" validate:"required"`
 
 	// For cache
 	ProxyKeysMap map[string]struct{} `json:"-"`

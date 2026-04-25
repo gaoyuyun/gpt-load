@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { APIKey, Group, KeyStatus } from "@/types/models";
+import type { APIKey, Group, KeyRuntimeStatus, KeyStatus } from "@/types/models";
 import { appState, triggerSyncOperationRefresh } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskKey } from "@/utils/display";
@@ -481,15 +481,72 @@ function formatRelativeTime(date: string) {
   return t("keys.justNow");
 }
 
-function getStatusClass(status: KeyStatus): string {
-  switch (status) {
-    case "active":
-      return "status-valid";
+function getRuntimeStatus(key: KeyRow): KeyRuntimeStatus {
+  return key.runtime_status || (key.status as KeyRuntimeStatus);
+}
+
+function getStatusClass(key: KeyRow): string {
+  switch (getRuntimeStatus(key)) {
+    case "cooling":
+      return "status-cooling";
+    case "auto_disabled":
+      return "status-auto-disabled";
     case "invalid":
       return "status-invalid";
+    case "active":
+      return "status-valid";
     default:
       return "status-unknown";
   }
+}
+
+function getStatusTagType(key: KeyRow): "success" | "warning" | "error" | "default" {
+  switch (getRuntimeStatus(key)) {
+    case "cooling":
+      return "warning";
+    case "auto_disabled":
+      return "error";
+    case "invalid":
+      return "default";
+    default:
+      return "success";
+  }
+}
+
+function getStatusTagText(key: KeyRow): string {
+  switch (getRuntimeStatus(key)) {
+    case "cooling":
+      return t("keys.coolingShort");
+    case "auto_disabled":
+      return t("keys.autoDisabledShort");
+    case "invalid":
+      return t("keys.invalidShort");
+    default:
+      return t("keys.validShort");
+  }
+}
+
+function getStatusReason(key: KeyRow): string {
+  const parts: string[] = [];
+  if (key.last_error_code > 0) {
+    parts.push(`${t("keys.statusCodeLabel")}: ${key.last_error_code}`);
+  }
+  const reason = key.status_reason || key.last_error_message;
+  if (reason) {
+    parts.push(reason);
+  }
+  return parts.join(" · ");
+}
+
+function shouldShowStatusReason(key: KeyRow): boolean {
+  return getRuntimeStatus(key) !== "active" && getStatusReason(key).length > 0;
+}
+
+function formatCooldownRemaining(seconds?: number): string {
+  if (!seconds || seconds <= 0) {
+    return t("keys.cooldownRemaining", { seconds: 0 });
+  }
+  return t("keys.cooldownRemaining", { seconds });
 }
 
 async function copyAllKeys() {
@@ -758,23 +815,28 @@ function resetPage() {
             v-for="key in keys"
             :key="key.id"
             class="key-card"
-            :class="getStatusClass(key.status)"
+            :class="getStatusClass(key)"
           >
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
               <div class="key-section">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                  <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
+                  <n-tag :type="getStatusTagType(key)" :bordered="false" round>
                     <template #icon>
-                      <n-icon :component="CheckmarkCircle" />
+                      <n-icon
+                        :component="getRuntimeStatus(key) === 'active' ? CheckmarkCircle : AlertCircleOutline"
+                      />
                     </template>
-                    {{ t("keys.validShort") }}
+                    {{ getStatusTagText(key) }}
                   </n-tag>
-                  <n-tag v-else :bordered="false" round>
-                    <template #icon>
-                      <n-icon :component="AlertCircleOutline" />
-                    </template>
-                    {{ t("keys.invalidShort") }}
+                  <n-tag
+                    v-if="getRuntimeStatus(key) === 'cooling'"
+                    type="warning"
+                    :bordered="false"
+                    size="small"
+                    round
+                  >
+                    {{ formatCooldownRemaining(key.cooldown_remaining_seconds) }}
                   </n-tag>
                   <n-tag
                     v-if="key.is_manually_disabled"
@@ -796,6 +858,9 @@ function resetPage() {
                   </n-tag>
                 </div>
                 <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
+                <div v-if="shouldShowStatusReason(key)" class="status-reason">
+                  {{ getStatusReason(key) }}
+                </div>
                 <div class="quick-actions">
                   <n-button
                     size="tiny"
@@ -1176,6 +1241,16 @@ function resetPage() {
   opacity: 0.85;
 }
 
+.key-card.status-cooling {
+  border-color: #f0a020;
+  background: rgba(240, 160, 32, 0.08);
+}
+
+.key-card.status-auto-disabled {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
 .key-card.status-error {
   border-color: var(--error-border);
   background: var(--error-bg);
@@ -1191,7 +1266,8 @@ function resetPage() {
 
 .key-section {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   flex: 1;
   min-width: 0;
@@ -1261,7 +1337,15 @@ function resetPage() {
 .quick-actions {
   display: flex;
   gap: 4px;
+  justify-content: flex-end;
   flex-shrink: 0;
+}
+
+.status-reason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
 }
 
 .quick-btn {
