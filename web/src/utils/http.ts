@@ -58,7 +58,6 @@ http.interceptors.response.use(
           i18n.global.t("common.requestFailed", { status: error.response.status }),
         {
           keepAliveOnHover: true,
-          duration: 5000,
           closable: true,
         }
       );

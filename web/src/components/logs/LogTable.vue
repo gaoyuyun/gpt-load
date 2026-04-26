@@ -128,7 +128,6 @@ const loadLogs = async () => {
       total.value = 0;
       window.$message.error(res.message || t("logs.loadFailed"), {
         keepAliveOnHover: true,
-        duration: 5000,
         closable: true,
       });
     }

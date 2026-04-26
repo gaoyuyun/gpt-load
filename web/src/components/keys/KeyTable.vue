@@ -263,7 +263,6 @@ async function testKey(_key: KeyRow) {
     } else {
       window.$message.error(curValid.error || t("keys.testFailed"), {
         keepAliveOnHover: true,
-        duration: 5000,
         closable: true,
       });
     }

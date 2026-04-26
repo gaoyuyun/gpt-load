@@ -220,7 +220,7 @@ const Message = defineComponent({
     :date-locale="dateLocale"
   >
     <n-loading-bar-provider>
-      <n-message-provider placement="top-right">
+      <n-message-provider placement="top-right" :duration="10000">
         <n-dialog-provider>
           <slot />
           <loading-bar />
