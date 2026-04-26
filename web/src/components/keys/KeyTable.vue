@@ -29,7 +29,7 @@ import {
   useDialog,
   type MessageReactive,
 } from "naive-ui";
-import { h, ref, watch } from "vue";
+import { h, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import KeyCreateDialog from "./KeyCreateDialog.vue";
 import KeyDeleteDialog from "./KeyDeleteDialog.vue";
@@ -56,6 +56,15 @@ const total = ref(0);
 const totalPages = ref(0);
 const dialog = useDialog();
 const confirmInput = ref("");
+const cooldownTick = ref(0);
+let cooldownTimer: ReturnType<typeof setInterval> | null = null;
+
+onMounted(() => {
+  cooldownTimer = setInterval(() => { cooldownTick.value++; }, 1000);
+});
+onUnmounted(() => {
+  if (cooldownTimer) { clearInterval(cooldownTimer); cooldownTimer = null; }
+});
 
 // 状态过滤选项
 const statusOptions = [
@@ -604,6 +613,16 @@ function formatCooldownRemaining(seconds?: number): string {
   return t("keys.cooldownRemaining", { seconds });
 }
 
+function getCooldownRemaining(key: KeyRow): number {
+  if (!key.cooldown_until) return key.cooldown_remaining_seconds || 0;
+  void cooldownTick.value;
+  const remaining = Math.max(0, Math.ceil((new Date(key.cooldown_until).getTime() - Date.now()) / 1000));
+  if (remaining === 0 && key.runtime_status === "cooling") {
+    key.runtime_status = "active";
+  }
+  return remaining;
+}
+
 async function copyAllKeys() {
   if (!props.selectedGroup?.id) {
     return;
@@ -891,7 +910,7 @@ function resetPage() {
                     size="small"
                     round
                   >
-                    {{ formatCooldownRemaining(key.cooldown_remaining_seconds) }}
+                    {{ formatCooldownRemaining(getCooldownRemaining(key)) }}
                   </n-tag>
                   <n-tag
                     v-if="key.is_manually_disabled"
