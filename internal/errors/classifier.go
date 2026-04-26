@@ -18,32 +18,35 @@ type KeyFailureDecision struct {
 	Action            string `json:"action"`
 	StatusCode        int    `json:"status_code"`
 	ErrorMessage      string `json:"error_message"`
+	OriginalError     string `json:"original_error"`
 	MatchedStatusCode int    `json:"matched_status_code"`
 	Retryable         bool   `json:"retryable"`
 }
 
 // ClassifyKeyFailure classifies an upstream failure into retry/key-management behavior.
-func ClassifyKeyFailure(statusCode int, errorMessage string, settings types.SystemSettings) KeyFailureDecision {
+// parsedError is the extracted message for classification; originalError is the raw upstream response for storage.
+func ClassifyKeyFailure(statusCode int, parsedError string, originalError string, settings types.SystemSettings) KeyFailureDecision {
 	decision := KeyFailureDecision{
-		Action:       models.KeyActionNormalFailure,
-		StatusCode:   statusCode,
-		ErrorMessage: strings.TrimSpace(errorMessage),
-		Retryable:    true,
+		Action:        models.KeyActionNormalFailure,
+		StatusCode:    statusCode,
+		ErrorMessage:  truncateString(strings.TrimSpace(originalError), maxErrorBodyLength),
+		OriginalError: truncateString(strings.TrimSpace(originalError), maxErrorBodyLength),
+		Retryable:     true,
 	}
 
-	if matchedCode := matchConfiguredStatusCode(statusCode, settings.DisableStatusCodes); matchedCode != 0 || hasPaymentRequiredKeywords(errorMessage) {
+	if matchedCode := matchConfiguredStatusCode(statusCode, settings.DisableStatusCodes); matchedCode != 0 || hasPaymentRequiredKeywords(parsedError) {
 		decision.Action = models.KeyActionAutoDisable
 		decision.MatchedStatusCode = matchedCode
 		return decision
 	}
 
-	if matchedCode := matchConfiguredStatusCode(statusCode, settings.CooldownStatusCodes); matchedCode != 0 || hasRateLimitKeywords(errorMessage) {
+	if matchedCode := matchConfiguredStatusCode(statusCode, settings.CooldownStatusCodes); matchedCode != 0 || hasRateLimitKeywords(parsedError) {
 		decision.Action = models.KeyActionCooldown
 		decision.MatchedStatusCode = matchedCode
 		return decision
 	}
 
-	if matchedCode := matchConfiguredStatusCode(statusCode, settings.DirectFailStatusCodes); matchedCode != 0 || hasDirectFailKeywords(errorMessage) {
+	if matchedCode := matchConfiguredStatusCode(statusCode, settings.DirectFailStatusCodes); matchedCode != 0 || hasDirectFailKeywords(parsedError) {
 		decision.Action = models.KeyActionDirectFail
 		decision.MatchedStatusCode = matchedCode
 		decision.Retryable = false

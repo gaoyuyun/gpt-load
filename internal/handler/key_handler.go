@@ -570,6 +570,47 @@ func (s *Server) UpdateKeyNotes(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// ClearKeyCooldownRequest defines the payload for clearing key cooldown.
+type ClearKeyCooldownRequest struct {
+	GroupID uint `json:"group_id" binding:"required"`
+	KeyIDs  []uint `json:"key_ids" binding:"required"`
+}
+
+// ClearKeyCooldown handles manually clearing key cooldown state.
+func (s *Server) ClearKeyCooldown(c *gin.Context) {
+	var req ClearKeyCooldownRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if len(req.KeyIDs) == 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "key_ids cannot be empty"))
+		return
+	}
+
+	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+		return
+	}
+
+	for _, keyID := range req.KeyIDs {
+		if err := s.KeyProvider.ClearKeyCooldown(keyID, req.GroupID); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"keyID":   keyID,
+				"groupID": req.GroupID,
+				"error":   err,
+			}).Error("Failed to clear key cooldown")
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to clear cooldown for key %d: %v", keyID, err)))
+			return
+		}
+	}
+
+	response.Success(c, gin.H{
+		"message": fmt.Sprintf("Successfully cleared cooldown for %d key(s)", len(req.KeyIDs)),
+		"count":   len(req.KeyIDs),
+	})
+}
+
 // SetKeyManuallyDisabledRequest defines the payload for manually enabling/disabling keys.
 type SetKeyManuallyDisabledRequest struct {
 	GroupID  uint   `json:"group_id" binding:"required"`

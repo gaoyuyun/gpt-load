@@ -77,7 +77,7 @@ func (s *KeyValidator) ValidateSingleKey(key *models.APIKey, group *models.Group
 	if isValid {
 		s.keypoolProvider.UpdateStatus(key, group, true, nil)
 	} else {
-		decision := app_errors.ClassifyKeyFailure(statusCode, errorMsg, group.EffectiveConfig)
+		decision := app_errors.ClassifyKeyFailure(statusCode, errorMsg, errorMsg, group.EffectiveConfig)
 		s.keypoolProvider.UpdateStatus(key, group, false, &decision)
 	}
 

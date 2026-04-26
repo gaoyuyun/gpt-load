@@ -172,6 +172,25 @@ const formatJsonString = (jsonStr: string) => {
   }
 };
 
+const parseUpstreamErrorMessage = (raw: string): string => {
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.error?.message) {
+      const parts = [parsed.error.message];
+      if (parsed.error.type) parts.push(`[${parsed.error.type}]`);
+      if (parsed.error.code) parts.push(`[${parsed.error.code}]`);
+      return parts.join(" ");
+    }
+    if (parsed.error_msg) return parsed.error_msg;
+    if (typeof parsed.error === "string") return parsed.error;
+    if (parsed.message) return parsed.message;
+    return raw;
+  } catch {
+    return raw;
+  }
+};
+
 // 复制功能
 const copyContent = async (content: string, type: string) => {
   const success = await copy(content);
@@ -356,7 +375,7 @@ const allColumnConfigs: ColumnConfig[] = [
           style: "max-width: 580px; color: var(--error-color)",
           tooltip: true,
         },
-        { default: () => row.error_message }
+        { default: () => parseUpstreamErrorMessage(row.error_message) }
       );
     },
   },
@@ -919,7 +938,7 @@ const deselectAllColumns = () => {
             </template>
             <div class="compact-field compact-field-error">
               <div class="compact-field-content">
-                {{ selectedLog.error_message }}
+                {{ parseUpstreamErrorMessage(selectedLog.error_message) }}
               </div>
             </div>
           </n-card>

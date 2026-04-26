@@ -158,6 +158,17 @@ export const keysApi = {
     });
   },
 
+  // 清除密钥冷却状态
+  async clearCooldown(
+    groupId: number,
+    keyIds: number[]
+  ): Promise<void> {
+    await http.post("/keys/clear-cooldown", {
+      group_id: groupId,
+      key_ids: keyIds,
+    });
+  },
+
   // 测试密钥
   async testKeys(
     group_id: number,

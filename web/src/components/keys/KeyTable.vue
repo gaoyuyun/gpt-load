@@ -388,6 +388,38 @@ async function toggleManuallyDisabled(key: KeyRow) {
   });
 }
 
+// 清除密钥冷却状态
+async function clearKeyCooldown(key: KeyRow) {
+  if (!props.selectedGroup?.id) {
+    return;
+  }
+
+  const d = dialog.warning({
+    title: t("keys.clearCooldown"),
+    content: t("keys.confirmClearCooldown", { key: maskKey(key.key_value) }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      if (!props.selectedGroup?.id) {
+        return;
+      }
+
+      d.loading = true;
+
+      try {
+        await keysApi.clearCooldown(props.selectedGroup.id, [key.id]);
+        window.$message.success(t("keys.cooldownCleared"));
+        await loadKeys();
+        triggerSyncOperationRefresh(props.selectedGroup.name, "CLEAR_COOLDOWN");
+      } catch (error) {
+        console.error("Clear cooldown failed", error);
+      } finally {
+        d.loading = false;
+      }
+    },
+  });
+}
+
 
 async function restoreKey(key: KeyRow) {
   if (!props.selectedGroup?.id || !key.key_value || isRestoring.value) {
@@ -526,14 +558,37 @@ function getStatusTagText(key: KeyRow): string {
   }
 }
 
+function parseUpstreamErrorMessage(raw: string): string {
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    // Standard format: {"error": {"message": "...", "type": "...", "code": "..."}}
+    if (parsed.error?.message) {
+      const parts = [parsed.error.message];
+      if (parsed.error.type) parts.push(`[${parsed.error.type}]`);
+      if (parsed.error.code) parts.push(`[${parsed.error.code}]`);
+      return parts.join(" ");
+    }
+    // Vendor format: {"error_msg": "..."}
+    if (parsed.error_msg) return parsed.error_msg;
+    // Simple format: {"error": "..."}
+    if (typeof parsed.error === "string") return parsed.error;
+    // Root message: {"message": "..."}
+    if (parsed.message) return parsed.message;
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
 function getStatusReason(key: KeyRow): string {
   const parts: string[] = [];
   if (key.last_error_code > 0) {
     parts.push(`${t("keys.statusCodeLabel")}: ${key.last_error_code}`);
   }
-  const reason = key.status_reason || key.last_error_message;
-  if (reason) {
-    parts.push(reason);
+  const raw = key.status_reason || key.last_error_message;
+  if (raw) {
+    parts.push(parseUpstreamErrorMessage(raw));
   }
   return parts.join(" · ");
 }
@@ -926,6 +981,16 @@ function resetPage() {
                   type="warning"
                 >
                   {{ t("keys.restoreShort") }}
+                </n-button>
+                <n-button
+                  v-if="getRuntimeStatus(key) === 'cooling'"
+                  tertiary
+                  size="tiny"
+                  @click="clearKeyCooldown(key)"
+                  :title="t('keys.clearCooldown')"
+                  type="success"
+                >
+                  {{ t("keys.clearCooldownShort") }}
                 </n-button>
                 <n-button
                   round

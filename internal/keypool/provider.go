@@ -160,6 +160,7 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 						"keyID":           apiKey.ID,
 						"cooldownSeconds": cooldownSeconds,
 						"statusCode":      decision.StatusCode,
+						"errorMessage":    decision.ErrorMessage,
 					}).Info("Cooldown error detected, setting key cooldown")
 					if err := p.SetKeyCooldown(apiKey.ID, keyHashKey, cooldownSeconds, decision); err != nil {
 						logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to set key cooldown")
@@ -1062,6 +1063,50 @@ func (p *KeyProvider) SetKeyCooldown(keyID uint, keyHashKey string, durationSeco
 
 	cooldownKey := fmt.Sprintf("cooldown:%d", keyID)
 	return p.store.Set(cooldownKey, []byte(strconv.FormatInt(cooldownUntil.Unix(), 10)), time.Duration(durationSeconds)*time.Second)
+}
+
+// ClearKeyCooldown 手动清除 key 的冷却状态
+func (p *KeyProvider) ClearKeyCooldown(keyID uint, groupID uint) error {
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		var key models.APIKey
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, keyID).Error; err != nil {
+			return fmt.Errorf("failed to lock key %d: %w", keyID, err)
+		}
+
+		updates := map[string]any{
+			"cooldown_until":     nil,
+			"last_status_action": models.KeyActionNone,
+		}
+		if err := tx.Model(&key).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to clear cooldown in DB: %w", err)
+		}
+
+		keyHashKey := fmt.Sprintf("key:%d", keyID)
+		if err := p.store.HSet(keyHashKey, map[string]any{
+			"cooldown_until":     0,
+			"last_status_action": models.KeyActionNone,
+		}); err != nil {
+			return fmt.Errorf("failed to clear cooldown in store: %w", err)
+		}
+
+		cooldownKey := fmt.Sprintf("cooldown:%d", keyID)
+		if err := p.store.Delete(cooldownKey); err != nil {
+			return fmt.Errorf("failed to delete cooldown key: %w", err)
+		}
+
+		// 如果 key 状态为 active 且未被手动禁用，确保在 active_keys 列表中
+		if key.Status == models.KeyStatusActive && !key.IsManuallyDisabled {
+			activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
+			if err := p.store.LRem(activeKeysListKey, 0, keyID); err != nil {
+				return fmt.Errorf("failed to LRem before LPush: %w", err)
+			}
+			if err := p.store.LPush(activeKeysListKey, keyID); err != nil {
+				return fmt.Errorf("failed to add key to active list: %w", err)
+			}
+		}
+
+		return nil
+	})
 }
 
 // SetKeyManuallyDisabled 手动启用/禁用 key

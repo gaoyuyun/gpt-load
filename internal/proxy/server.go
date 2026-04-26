@@ -232,7 +232,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
 		}
 
-		decision := app_errors.ClassifyKeyFailure(statusCode, parsedError, cfg)
+		decision := app_errors.ClassifyKeyFailure(statusCode, parsedError, errorMessage, cfg)
 
 		// 使用统一分类结果更新密钥状态
 		ps.keyProvider.UpdateStatus(apiKey, group, false, &decision)
@@ -243,7 +243,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			requestType = models.RequestTypeRetry
 		}
 
-		ps.logRequest(c, originalGroup, group, apiKey, startTime, statusCode, errors.New(parsedError), isStream, upstreamURL, channelHandler, bodyBytes, requestType)
+		ps.logRequest(c, originalGroup, group, apiKey, startTime, statusCode, errors.New(errorMessage), isStream, upstreamURL, channelHandler, bodyBytes, requestType)
 
 		// 如果不再重试，直接返回错误
 		if !shouldRetry {
