@@ -872,11 +872,16 @@ func (s *GroupService) validateAndCleanConfig(configMap map[string]any) (map[str
 		}
 	}
 
-	if err := s.settingsManager.ValidateGroupConfigOverrides(configMap); err != nil {
+	normalizedConfig, err := config.NormalizeStatusCodeSettings(configMap)
+	if err != nil {
 		return nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
 	}
 
-	configBytes, err := json.Marshal(configMap)
+	if err := s.settingsManager.ValidateGroupConfigOverrides(normalizedConfig); err != nil {
+		return nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
+	}
+
+	configBytes, err := json.Marshal(normalizedConfig)
 	if err != nil {
 		return nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
 	}

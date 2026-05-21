@@ -60,6 +60,9 @@ type GroupConfig struct {
 	EnableRequestBodyLogging     *bool   `json:"enable_request_body_logging,omitempty"`
 	KeySelectionStrategy         *string `json:"key_selection_strategy,omitempty"`
 	CooldownDurationSeconds      *int    `json:"cooldown_duration_seconds,omitempty"`
+	CooldownStatusCodes          *string `json:"cooldown_status_codes,omitempty"`
+	DisableStatusCodes           *string `json:"disable_status_codes,omitempty"`
+	DirectFailStatusCodes        *string `json:"direct_fail_status_codes,omitempty"`
 }
 
 // HeaderRule defines a single rule for header manipulation.
