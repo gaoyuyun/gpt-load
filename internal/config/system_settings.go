@@ -24,6 +24,21 @@ import (
 
 const SettingsUpdateChannel = "system_settings:updated"
 
+var statusCodeSettingKeys = []string{
+	"cooldown_status_codes",
+	"disable_status_codes",
+	"direct_fail_status_codes",
+}
+
+func isStatusCodeSettingKey(key string) bool {
+	for _, statusCodeKey := range statusCodeSettingKeys {
+		if key == statusCodeKey {
+			return true
+		}
+	}
+	return false
+}
+
 // SystemSettingsManager 管理系统配置
 type SystemSettingsManager struct {
 	syncer *syncer.CacheSyncer[types.SystemSettings]
@@ -191,7 +206,7 @@ func (sm *SystemSettingsManager) GetAppUrl() string {
 
 // UpdateSettings 更新系统配置
 func (sm *SystemSettingsManager) UpdateSettings(settingsMap map[string]any) error {
-	normalizedSettings, err := sm.normalizeSettingsMap(settingsMap)
+	normalizedSettings, err := NormalizeStatusCodeSettings(settingsMap)
 	if err != nil {
 		return err
 	}
@@ -358,19 +373,14 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 	return nil
 }
 
-func (sm *SystemSettingsManager) normalizeSettingsMap(settingsMap map[string]any) (map[string]any, error) {
+// NormalizeStatusCodeSettings normalizes status-code lists in a settings or group override map.
+func NormalizeStatusCodeSettings(settingsMap map[string]any) (map[string]any, error) {
 	normalized := make(map[string]any, len(settingsMap))
 	for key, value := range settingsMap {
 		normalized[key] = value
 	}
 
-	statusCodeKeys := []string{
-		"cooldown_status_codes",
-		"disable_status_codes",
-		"direct_fail_status_codes",
-	}
-
-	for _, key := range statusCodeKeys {
+	for _, key := range statusCodeSettingKeys {
 		rawValue, exists := normalized[key]
 		if !exists {
 			continue
@@ -448,7 +458,7 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 			for _, rule := range rules {
 				trimmedRule := strings.TrimSpace(rule)
 				if trimmedRule == "required" {
-					if strVal == "" {
+					if strVal == "" && !isStatusCodeSettingKey(key) {
 						return fmt.Errorf("value for %s is required", key)
 					}
 				}
@@ -464,6 +474,15 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 		default:
 			// Do not validate other types for group overrides
 		}
+	}
+
+	effectiveSettings := sm.GetEffectiveConfig(datatypes.JSONMap(configMap))
+	if err := app_errors.ValidateStatusCodeLists(
+		effectiveSettings.CooldownStatusCodes,
+		effectiveSettings.DisableStatusCodes,
+		effectiveSettings.DirectFailStatusCodes,
+	); err != nil {
+		return err
 	}
 
 	return nil
