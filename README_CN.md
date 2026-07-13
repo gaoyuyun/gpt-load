@@ -13,6 +13,29 @@
 <a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp%2Fgpt-load | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 
+## 赞助商
+
+<table>
+<tbody>
+<tr>
+<td width="180"><a href="https://teamorouter.com/?utm_source=gpt_load&utm_medium=referral&utm_campaign=ai_directory"><img src="./screenshot/teamorouter.png" alt="TeamoRouter" width="150"></a></td>
+<td>感谢 TeamoRouter 赞助了本项目！TeamoRouter 是企业级 Agentic LLM gateway，让开发者、AI 团队和企业可以通过一个统一 API 访问 Claude Code、Codex、Gemini CLI 和其他 AI agents，无需分别订阅，并可享受最高 90% 的折扣。它连接官方提供商和 OpenAI、Anthropic、Vertex、Azure、AWS Bedrock 等可信合作伙伴，提供经过验证的 Agent protocol 兼容性、请求可追踪性、接近官方的 TTFT、99.6% SLA 以及最高 5,000 QPM。它还包含集中计费、团队管理、BYOK、smart routing、analytics、provider optimization 和专属支持。Teamo Desktop 支持一键设置，无需管理 API key 或手动配置，新用户可通过<a href="https://teamorouter.com/?utm_source=gpt_load&utm_medium=referral&utm_campaign=ai_directory">此链接</a>注册，首充可享 10% 折扣。</td>
+</tr>
+<tr>
+<td width="180"><a href="https://unity2.ai/register?source=gptload"><img src="./screenshot/unity2ai.jpg" alt="Unity2.ai" width="150"></a></td>
+<td>感谢 Unity2.ai 赞助了本项目！Unity2.ai 是面向个人开发者、团队和企业的高性能 AI 模型 API 中转平台，长期服务国内头部企业，日均承载超 300 亿 token 调用，支持 5000 RPM 级高并发。支持余额计费、首充赠额、组合订阅、企业开票和专属对接。通过<a href="https://unity2.ai/register?source=gptload">此链接</a>注册可领取 $2 余额，加入官方群再送 $10 余额，最高可领 $12 免费额度。</td>
+</tr>
+<tr>
+<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
+<td>非常感谢 LINUX DO 社区的支持！</td>
+</tr>
+<tr>
+<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean Referral Badge" width="150"></a></td>
+<td>本项目由 DigitalOcean 支持。</td>
+</tr>
+</tbody>
+</table>
+
 ## 功能特性
 
 - **透明代理**: 完全保留原生 API 格式，支持 OpenAI、Google Gemini 和 Anthropic Claude 等多种格式
@@ -179,10 +202,10 @@ GPT-Load 采用双层配置架构：
 
 **安全配置：**
 
-| 配置项   | 环境变量        | 默认值 | 说明                                                                 |
-| -------- | --------------- | ------ | -------------------------------------------------------------------- |
-| 管理密钥 | `AUTH_KEY`      | -      | **管理端**的访问认证密钥，请修改为强密码                             |
-| 加密密钥 | `ENCRYPTION_KEY`| -      | 加密存储的API密钥，支持任意字符串或留空禁用加密。参见[数据加密迁移](#数据加密迁移) |
+| 配置项   | 环境变量         | 默认值 | 说明                                                                               |
+| -------- | ---------------- | ------ | ---------------------------------------------------------------------------------- |
+| 管理密钥 | `AUTH_KEY`       | -      | **管理端**的访问认证密钥，请修改为强密码                                           |
+| 加密密钥 | `ENCRYPTION_KEY` | -      | 加密存储的API密钥，支持任意字符串或留空禁用加密。参见[数据加密迁移](#数据加密迁移) |
 
 **数据库配置：**
 
@@ -196,7 +219,7 @@ GPT-Load 采用双层配置架构：
 | 配置项       | 环境变量                  | 默认值                        | 说明                     |
 | ------------ | ------------------------- | ----------------------------- | ------------------------ |
 | 最大并发请求 | `MAX_CONCURRENT_REQUESTS` | 100                           | 系统允许的最大并发请求数 |
-| 启用 CORS    | `ENABLE_CORS`             | false                          | 是否启用跨域资源共享     |
+| 启用 CORS    | `ENABLE_CORS`             | false                         | 是否启用跨域资源共享     |
 | 允许的来源   | `ALLOWED_ORIGINS`         | -                             | 允许的来源，逗号分隔     |
 | 允许的方法   | `ALLOWED_METHODS`         | `GET,POST,PUT,DELETE,OPTIONS` | 允许的 HTTP 方法         |
 | 允许的头部   | `ALLOWED_HEADERS`         | `*`                           | 允许的请求头，逗号分隔   |
@@ -233,24 +256,24 @@ GPT-Load 会自动从环境变量中读取代理设置，用于向上游 AI 服�
 
 **基础设置：**
 
-| 配置项       | 字段名                               | 默认值                      | 分组可覆盖 | 说明                                   |
-| ------------ | ------------------------------------ | --------------------------- | ---------- | -------------------------------------- |
-| 项目地址     | `app_url`                            | `http://localhost:3001`     | ❌         | 项目基础 URL                           |
-| 全局代理密钥 | `proxy_keys`                         | 初始值为环境配置的 AUTH_KEY | ❌         | 全局生效的代理认证密钥，多个用逗号分隔 |
-| 日志保留天数 | `request_log_retention_days`         | 7                           | ❌         | 请求日志保留天数，0 为不清理           |
-| 日志写入间隔 | `request_log_write_interval_minutes` | 1                           | ❌         | 日志写入数据库周期（分钟）             |
+| 配置项       | 字段名                               | 默认值                      | 分组可覆盖 | 说明                                                           |
+| ------------ | ------------------------------------ | --------------------------- | ---------- | -------------------------------------------------------------- |
+| 项目地址     | `app_url`                            | `http://localhost:3001`     | ❌         | 项目基础 URL                                                   |
+| 全局代理密钥 | `proxy_keys`                         | 初始值为环境配置的 AUTH_KEY | ❌         | 全局生效的代理认证密钥，多个用逗号分隔                         |
+| 日志保留天数 | `request_log_retention_days`         | 7                           | ❌         | 请求日志保留天数，0 为不清理                                   |
+| 日志写入间隔 | `request_log_write_interval_minutes` | 1                           | ❌         | 日志写入数据库周期（分钟）                                     |
 | 启用日志详情 | `enable_request_body_logging`        | false                       | ✅         | 是否在请求日志中记录完整的请求体内容，启用会增加内存和存储占用 |
 
 **请求设置：**
 
-| 配置项               | 字段名                    | 默认值 | 分组可覆盖 | 说明                           |
-| -------------------- | ------------------------- | ------ | ---------- | ------------------------------ |
-| 请求超时             | `request_timeout`         | 600    | ✅         | 转发请求完整生命周期超时（秒） |
-| 连接超时             | `connect_timeout`         | 15     | ✅         | 与上游服务建立连接超时（秒）   |
-| 空闲连接超时         | `idle_conn_timeout`       | 120    | ✅         | HTTP 客户端空闲连接超时（秒）  |
-| 响应头超时           | `response_header_timeout` | 600    | ✅         | 等待上游响应头超时（秒）       |
-| 最大空闲连接数       | `max_idle_conns`          | 100    | ✅         | 连接池最大空闲连接总数         |
-| 每主机最大空闲连接数 | `max_idle_conns_per_host` | 50     | ✅         | 每个上游主机最大空闲连接数     |
+| 配置项               | 字段名                    | 默认值 | 分组可覆盖 | 说明                                               |
+| -------------------- | ------------------------- | ------ | ---------- | -------------------------------------------------- |
+| 请求超时             | `request_timeout`         | 600    | ✅         | 转发请求完整生命周期超时（秒）                     |
+| 连接超时             | `connect_timeout`         | 15     | ✅         | 与上游服务建立连接超时（秒）                       |
+| 空闲连接超时         | `idle_conn_timeout`       | 120    | ✅         | HTTP 客户端空闲连接超时（秒）                      |
+| 响应头超时           | `response_header_timeout` | 600    | ✅         | 等待上游响应头超时（秒）                           |
+| 最大空闲连接数       | `max_idle_conns`          | 100    | ✅         | 连接池最大空闲连接总数                             |
+| 每主机最大空闲连接数 | `max_idle_conns_per_host` | 50     | ✅         | 每个上游主机最大空闲连接数                         |
 | 代理服务器地址       | `proxy_url`               | -      | ✅         | 用于转发请求的 HTTP/HTTPS 代理，为空则使用环境配置 |
 
 **密钥配置：**
@@ -342,6 +365,7 @@ make run
 ### 注意事项
 
 ⚠️ **重要提醒**：
+
 - **ENCRYPTION_KEY 一旦丢失将无法恢复已加密的数据！** 请务必安全备份此密钥，建议使用密码管理器或安全的密钥管理系统保存
 - 迁移前**必须停止服务**，避免数据不一致
 - 强烈建议**备份数据库**，以防迁移失败需要恢复
@@ -588,12 +612,6 @@ response = client.messages.create(
 感谢所有为 GPT-Load 做出贡献的开发者们！
 
 [![Contributors](https://contrib.rocks/image?repo=tbphp/gpt-load)](https://github.com/tbphp/gpt-load/graphs/contributors)
-
-## 支持者
-
-- 非常感谢 [LINUX DO](https://linux.do) 社区的支持！
-- 本项目由 DigitalOcean 支持。
-  [![DigitalOcean Referral Badge](https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg)](https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
 
 ## 许可证
 
