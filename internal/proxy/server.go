@@ -126,7 +126,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 ) {
 	cfg := group.EffectiveConfig
 
-	apiKey, err := ps.keyProvider.SelectKey(group.ID)
+	apiKey, err := ps.keyProvider.SelectKey(group.ID, group, c.ClientIP())
 	if err != nil {
 		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))
@@ -239,20 +239,21 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		errorMessage = utils.RedactSecret(errorMessage, apiKey.KeyValue)
 		parsedError = utils.RedactSecret(parsedError, apiKey.KeyValue)
 
-		// 使用解析后的错误信息更新密钥状态
-		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
+		decision := app_errors.ClassifyKeyFailure(statusCode, parsedError, errorMessage, cfg)
 
-		// 判断是否为最后一次尝试
-		isLastAttempt := retryCount >= cfg.MaxRetries
-		requestType := models.RequestTypeRetry
-		if isLastAttempt {
-			requestType = models.RequestTypeFinal
+		// 使用统一分类结果更新密钥状态
+		ps.keyProvider.UpdateStatus(apiKey, group, false, &decision)
+
+		shouldRetry := decision.Retryable && retryCount < cfg.MaxRetries
+		requestType := models.RequestTypeFinal
+		if shouldRetry {
+			requestType = models.RequestTypeRetry
 		}
 
-		ps.logRequest(c, originalGroup, group, apiKey, startTime, statusCode, errors.New(parsedError), isStream, upstreamURL, channelHandler, bodyBytes, requestType)
+		ps.logRequest(c, originalGroup, group, apiKey, startTime, statusCode, errors.New(errorMessage), isStream, upstreamURL, channelHandler, bodyBytes, requestType)
 
-		// 如果是最后一次尝试，直接返回错误，不再递归
-		if isLastAttempt {
+		// 如果不再重试，直接返回错误
+		if !shouldRetry {
 			var errorJSON map[string]any
 			if err := json.Unmarshal([]byte(errorMessage), &errorJSON); err == nil {
 				c.JSON(statusCode, errorJSON)

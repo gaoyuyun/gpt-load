@@ -920,6 +920,15 @@ async function handleSubmit() {
                               v-model:value="configItem.value"
                               size="small"
                             />
+                            <n-select
+                              v-else-if="configItem.key === 'key_selection_strategy'"
+                              v-model:value="configItem.value"
+                              :options="[
+                                { label: t('settings.strategyRoundRobin'), value: 'round-robin' },
+                                { label: t('settings.strategySticky'), value: 'sticky' },
+                              ]"
+                              :placeholder="t('keys.paramValue')"
+                            />
                             <n-input
                               v-else
                               v-model:value="configItem.value"

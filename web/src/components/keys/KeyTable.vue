@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { APIKey, Group, KeyStatus } from "@/types/models";
+import type { APIKey, Group, KeyRuntimeStatus, KeyStatus } from "@/types/models";
 import { appState, triggerSyncOperationRefresh } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskKey } from "@/utils/display";
@@ -21,6 +21,7 @@ import {
   NEmpty,
   NIcon,
   NInput,
+  NInputNumber,
   NModal,
   NSelect,
   NSpace,
@@ -28,7 +29,7 @@ import {
   useDialog,
   type MessageReactive,
 } from "naive-ui";
-import { h, ref, watch } from "vue";
+import { h, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import KeyCreateDialog from "./KeyCreateDialog.vue";
 import KeyDeleteDialog from "./KeyDeleteDialog.vue";
@@ -55,6 +56,15 @@ const total = ref(0);
 const totalPages = ref(0);
 const dialog = useDialog();
 const confirmInput = ref("");
+const cooldownTick = ref(0);
+let cooldownTimer: ReturnType<typeof setInterval> | null = null;
+
+onMounted(() => {
+  cooldownTimer = setInterval(() => { cooldownTick.value++; }, 1000);
+});
+onUnmounted(() => {
+  if (cooldownTimer) { clearInterval(cooldownTimer); cooldownTimer = null; }
+});
 
 // 状态过滤选项
 const statusOptions = [
@@ -97,6 +107,10 @@ const deleteDialogShow = ref(false);
 const notesDialogShow = ref(false);
 const editingKey = ref<KeyRow | null>(null);
 const editingNotes = ref("");
+
+// 优先级编辑相关
+const priorityDialogShow = ref(false);
+const editingPriority = ref(0);
 
 watch(
   () => props.selectedGroup,
@@ -323,6 +337,99 @@ async function saveKeyNotes() {
   }
 }
 
+// 编辑密钥优先级
+function editKeyPriority(key: KeyRow) {
+  editingKey.value = key;
+  editingPriority.value = key.priority || 0;
+  priorityDialogShow.value = true;
+}
+
+// 保存优先级
+async function saveKeyPriority() {
+  if (!editingKey.value) {
+    return;
+  }
+
+  try {
+    const priority = Math.max(0, Math.min(100, editingPriority.value));
+    await keysApi.updateKeyPriority(editingKey.value.id, priority);
+    editingKey.value.priority = priority;
+    window.$message.success(t("keys.priorityUpdated"));
+    priorityDialogShow.value = false;
+    await loadKeys();
+  } catch (error) {
+    console.error("Update priority failed", error);
+  }
+}
+
+// 切换密钥手动禁用状态
+async function toggleManuallyDisabled(key: KeyRow) {
+  if (!props.selectedGroup?.id) {
+    return;
+  }
+
+  const willDisable = !key.is_manually_disabled;
+  const d = dialog.warning({
+    title: willDisable ? t("keys.disableKey") : t("keys.enableKey"),
+    content: willDisable
+      ? t("keys.confirmDisableKey", { key: maskKey(key.key_value) })
+      : t("keys.confirmEnableKey", { key: maskKey(key.key_value) }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      if (!props.selectedGroup?.id) {
+        return;
+      }
+
+      d.loading = true;
+
+      try {
+        await keysApi.setKeyManuallyDisabled(props.selectedGroup.id, [key.id], willDisable);
+        window.$message.success(willDisable ? t("keys.keyDisabled") : t("keys.keyEnabled"));
+        await loadKeys();
+        triggerSyncOperationRefresh(props.selectedGroup.name, "TOGGLE_DISABLED");
+      } catch (error) {
+        console.error("Toggle manually disabled failed", error);
+      } finally {
+        d.loading = false;
+      }
+    },
+  });
+}
+
+// 清除密钥冷却状态
+async function clearKeyCooldown(key: KeyRow) {
+  if (!props.selectedGroup?.id) {
+    return;
+  }
+
+  const d = dialog.warning({
+    title: t("keys.clearCooldown"),
+    content: t("keys.confirmClearCooldown", { key: maskKey(key.key_value) }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      if (!props.selectedGroup?.id) {
+        return;
+      }
+
+      d.loading = true;
+
+      try {
+        await keysApi.clearCooldown(props.selectedGroup.id, [key.id]);
+        window.$message.success(t("keys.cooldownCleared"));
+        await loadKeys();
+        triggerSyncOperationRefresh(props.selectedGroup.name, "CLEAR_COOLDOWN");
+      } catch (error) {
+        console.error("Clear cooldown failed", error);
+      } finally {
+        d.loading = false;
+      }
+    },
+  });
+}
+
+
 async function restoreKey(key: KeyRow) {
   if (!props.selectedGroup?.id || !key.key_value || isRestoring.value) {
     return;
@@ -415,15 +522,105 @@ function formatRelativeTime(date: string) {
   return t("keys.justNow");
 }
 
-function getStatusClass(status: KeyStatus): string {
-  switch (status) {
-    case "active":
-      return "status-valid";
+function getRuntimeStatus(key: KeyRow): KeyRuntimeStatus {
+  return key.runtime_status || (key.status as KeyRuntimeStatus);
+}
+
+function getStatusClass(key: KeyRow): string {
+  switch (getRuntimeStatus(key)) {
+    case "cooling":
+      return "status-cooling";
+    case "auto_disabled":
+      return "status-auto-disabled";
     case "invalid":
       return "status-invalid";
+    case "active":
+      return "status-valid";
     default:
       return "status-unknown";
   }
+}
+
+function getStatusTagType(key: KeyRow): "success" | "warning" | "error" | "default" {
+  switch (getRuntimeStatus(key)) {
+    case "cooling":
+      return "warning";
+    case "auto_disabled":
+      return "error";
+    case "invalid":
+      return "default";
+    default:
+      return "success";
+  }
+}
+
+function getStatusTagText(key: KeyRow): string {
+  switch (getRuntimeStatus(key)) {
+    case "cooling":
+      return t("keys.coolingShort");
+    case "auto_disabled":
+      return t("keys.autoDisabledShort");
+    case "invalid":
+      return t("keys.invalidShort");
+    default:
+      return t("keys.validShort");
+  }
+}
+
+function parseUpstreamErrorMessage(raw: string): string {
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    // Standard format: {"error": {"message": "...", "type": "...", "code": "..."}}
+    if (parsed.error?.message) {
+      const parts = [parsed.error.message];
+      if (parsed.error.type) parts.push(`[${parsed.error.type}]`);
+      if (parsed.error.code) parts.push(`[${parsed.error.code}]`);
+      return parts.join(" ");
+    }
+    // Vendor format: {"error_msg": "..."}
+    if (parsed.error_msg) return parsed.error_msg;
+    // Simple format: {"error": "..."}
+    if (typeof parsed.error === "string") return parsed.error;
+    // Root message: {"message": "..."}
+    if (parsed.message) return parsed.message;
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+function getStatusReason(key: KeyRow): string {
+  const parts: string[] = [];
+  if (key.last_error_code > 0) {
+    parts.push(`${t("keys.statusCodeLabel")}: ${key.last_error_code}`);
+  }
+  const raw = key.status_reason || key.last_error_message;
+  if (raw) {
+    parts.push(parseUpstreamErrorMessage(raw));
+  }
+  return parts.join(" · ");
+}
+
+function shouldShowStatusReason(key: KeyRow): boolean {
+  return getRuntimeStatus(key) !== "active" && getStatusReason(key).length > 0;
+}
+
+function formatCooldownRemaining(seconds?: number): string {
+  if (!seconds || seconds <= 0) {
+    return t("keys.cooldownRemaining", { seconds: 0 });
+  }
+  return t("keys.cooldownRemaining", { seconds });
+}
+
+function getCooldownRemaining(key: KeyRow): number {
+  if (!key.cooldown_until) return key.cooldown_remaining_seconds || 0;
+  void cooldownTick.value;
+  const remaining = Math.max(0, Math.ceil((new Date(key.cooldown_until).getTime() - Date.now()) / 1000));
+  if (remaining === 0 && key.runtime_status === "cooling") {
+    key.runtime_status = "active";
+  }
+  return remaining;
 }
 
 async function copyAllKeys() {
@@ -692,24 +889,52 @@ function resetPage() {
             v-for="key in keys"
             :key="key.id"
             class="key-card"
-            :class="getStatusClass(key.status)"
+            :class="getStatusClass(key)"
           >
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
               <div class="key-section">
-                <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
-                  <template #icon>
-                    <n-icon :component="CheckmarkCircle" />
-                  </template>
-                  {{ t("keys.validShort") }}
-                </n-tag>
-                <n-tag v-else :bordered="false" round>
-                  <template #icon>
-                    <n-icon :component="AlertCircleOutline" />
-                  </template>
-                  {{ t("keys.invalidShort") }}
-                </n-tag>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <n-tag :type="getStatusTagType(key)" :bordered="false" round>
+                    <template #icon>
+                      <n-icon
+                        :component="getRuntimeStatus(key) === 'active' ? CheckmarkCircle : AlertCircleOutline"
+                      />
+                    </template>
+                    {{ getStatusTagText(key) }}
+                  </n-tag>
+                  <n-tag
+                    v-if="getRuntimeStatus(key) === 'cooling'"
+                    type="warning"
+                    :bordered="false"
+                    size="small"
+                    round
+                  >
+                    {{ formatCooldownRemaining(getCooldownRemaining(key)) }}
+                  </n-tag>
+                  <n-tag
+                    v-if="key.is_manually_disabled"
+                    type="error"
+                    :bordered="false"
+                    size="small"
+                    round
+                  >
+                    {{ t("keys.manuallyDisabled") }}
+                  </n-tag>
+                  <n-tag
+                    :bordered="false"
+                    size="small"
+                    style="cursor: pointer;"
+                    @click="editKeyPriority(key)"
+                    :title="t('keys.editPriority')"
+                  >
+                    {{ t("keys.priority") }}: {{ key.priority || 0 }}
+                  </n-tag>
+                </div>
                 <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
+                <div v-if="shouldShowStatusReason(key)" class="status-reason">
+                  {{ getStatusReason(key) }}
+                </div>
                 <div class="quick-actions">
                   <n-button
                     size="tiny"
@@ -775,6 +1000,26 @@ function resetPage() {
                   type="warning"
                 >
                   {{ t("keys.restoreShort") }}
+                </n-button>
+                <n-button
+                  v-if="getRuntimeStatus(key) === 'cooling'"
+                  tertiary
+                  size="tiny"
+                  @click="clearKeyCooldown(key)"
+                  :title="t('keys.clearCooldown')"
+                  type="success"
+                >
+                  {{ t("keys.clearCooldownShort") }}
+                </n-button>
+                <n-button
+                  round
+                  tertiary
+                  size="tiny"
+                  :type="key.is_manually_disabled ? 'success' : 'warning'"
+                  @click="toggleManuallyDisabled(key)"
+                  :title="key.is_manually_disabled ? t('keys.enableKey') : t('keys.disableKey')"
+                >
+                  {{ key.is_manually_disabled ? t("common.enable") : t("common.disable") }}
                 </n-button>
                 <n-button
                   round
@@ -857,6 +1102,21 @@ function resetPage() {
     <template #action>
       <n-button @click="notesDialogShow = false">{{ t("common.cancel") }}</n-button>
       <n-button type="primary" @click="saveKeyNotes">{{ t("common.save") }}</n-button>
+    </template>
+  </n-modal>
+
+  <!-- 优先级编辑对话框 -->
+  <n-modal v-model:show="priorityDialogShow" preset="dialog" :title="t('keys.editPriority')">
+    <n-input-number
+      v-model:value="editingPriority"
+      :placeholder="t('keys.enterPriority')"
+      :min="0"
+      :max="100"
+      style="width: 100%"
+    />
+    <template #action>
+      <n-button @click="priorityDialogShow = false">{{ t("common.cancel") }}</n-button>
+      <n-button type="primary" @click="saveKeyPriority">{{ t("common.save") }}</n-button>
     </template>
   </n-modal>
 </template>
@@ -1065,6 +1325,16 @@ function resetPage() {
   opacity: 0.85;
 }
 
+.key-card.status-cooling {
+  border-color: #f0a020;
+  background: rgba(240, 160, 32, 0.08);
+}
+
+.key-card.status-auto-disabled {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
 .key-card.status-error {
   border-color: var(--error-border);
   background: var(--error-bg);
@@ -1080,7 +1350,8 @@ function resetPage() {
 
 .key-section {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   flex: 1;
   min-width: 0;
@@ -1150,7 +1421,15 @@ function resetPage() {
 .quick-actions {
   display: flex;
   gap: 4px;
+  justify-content: flex-end;
   flex-shrink: 0;
+}
+
+.status-reason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
 }
 
 .quick-btn {

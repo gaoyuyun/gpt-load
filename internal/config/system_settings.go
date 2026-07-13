@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"gpt-load/internal/db"
+	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/failover"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
@@ -190,6 +191,12 @@ func (sm *SystemSettingsManager) GetAppUrl() string {
 
 // UpdateSettings 更新系统配置
 func (sm *SystemSettingsManager) UpdateSettings(settingsMap map[string]any) error {
+	normalizedSettings, err := sm.normalizeSettingsMap(settingsMap)
+	if err != nil {
+		return err
+	}
+	settingsMap = normalizedSettings
+
 	// 验证配置项
 	if err := sm.ValidateSettings(settingsMap); err != nil {
 		return err
@@ -325,7 +332,63 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 		}
 	}
 
+	effectiveSettings := sm.GetSettings()
+	if sm.syncer == nil {
+		effectiveSettings = utils.DefaultSystemSettings()
+	}
+
+	if raw, ok := settingsMap["cooldown_status_codes"]; ok {
+		effectiveSettings.CooldownStatusCodes = raw.(string)
+	}
+	if raw, ok := settingsMap["disable_status_codes"]; ok {
+		effectiveSettings.DisableStatusCodes = raw.(string)
+	}
+	if raw, ok := settingsMap["direct_fail_status_codes"]; ok {
+		effectiveSettings.DirectFailStatusCodes = raw.(string)
+	}
+
+	if err := app_errors.ValidateStatusCodeLists(
+		effectiveSettings.CooldownStatusCodes,
+		effectiveSettings.DisableStatusCodes,
+		effectiveSettings.DirectFailStatusCodes,
+	); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (sm *SystemSettingsManager) normalizeSettingsMap(settingsMap map[string]any) (map[string]any, error) {
+	normalized := make(map[string]any, len(settingsMap))
+	for key, value := range settingsMap {
+		normalized[key] = value
+	}
+
+	statusCodeKeys := []string{
+		"cooldown_status_codes",
+		"disable_status_codes",
+		"direct_fail_status_codes",
+	}
+
+	for _, key := range statusCodeKeys {
+		rawValue, exists := normalized[key]
+		if !exists {
+			continue
+		}
+
+		value, ok := rawValue.(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid type for %s: expected a string, got %T", key, rawValue)
+		}
+
+		normalizedValue, err := app_errors.NormalizeStatusCodeList(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for %s: %w", key, err)
+		}
+		normalized[key] = normalizedValue
+	}
+
+	return normalized, nil
 }
 
 // ValidateGroupConfigOverrides validates a map of group-level configuration overrides.
@@ -428,6 +491,9 @@ func (sm *SystemSettingsManager) DisplaySystemConfig(settings types.SystemSettin
 	logrus.Infof("    Blacklist Threshold: %d", settings.BlacklistThreshold)
 	logrus.Infof("    Failover Status Codes: %s", settings.FailoverStatusCodes)
 	logrus.Infof("    Key Validation Interval: %d minutes", settings.KeyValidationIntervalMinutes)
+	logrus.Infof("    Cooldown Status Codes: %s", settings.CooldownStatusCodes)
+	logrus.Infof("    Disable Status Codes: %s", settings.DisableStatusCodes)
+	logrus.Infof("    Direct Fail Status Codes: %s", settings.DirectFailStatusCodes)
 	logrus.Info("====================================")
 	logrus.Info("")
 }

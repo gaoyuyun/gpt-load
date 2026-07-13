@@ -77,3 +77,69 @@ func truncateString(s string, maxLength int) string {
 	}
 	return s
 }
+
+// IsPaymentRequiredError 检查是否为需要充值的错误（402 或余额不足）
+func IsPaymentRequiredError(statusCode int, errorMessage string) bool {
+	// 检查 HTTP 状态码
+	if statusCode == 402 {
+		return true
+	}
+
+	// 检查错误消息中的关键词（不区分大小写）
+	lowerMsg := strings.ToLower(errorMessage)
+	paymentKeywords := []string{
+		"payment required",
+		"payment_required",
+		"insufficient funds",
+		"insufficient_funds",
+		"insufficient credits",
+		"insufficient_credits",
+		"credit too low",
+		"credits too low",
+		"balance too low",
+		"insufficient balance",
+		"quota exceeded",
+		"billing",
+		"out of credits",
+		"no credits",
+		"account suspended",
+		"subscription expired",
+	}
+
+	for _, keyword := range paymentKeywords {
+		if strings.Contains(lowerMsg, keyword) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsRateLimitError 检查是否为 429 限流错误
+func IsRateLimitError(statusCode int, errorMessage string) bool {
+	// 检查 HTTP 状态码
+	if statusCode == 429 {
+		return true
+	}
+
+	// 检查错误消息中的关键词
+	lowerMsg := strings.ToLower(errorMessage)
+	rateLimitKeywords := []string{
+		"rate limit",
+		"rate_limit",
+		"too many requests",
+		"too_many_requests",
+		"quota exceeded",
+		"requests per",
+		"throttled",
+		"slow down",
+	}
+
+	for _, keyword := range rateLimitKeywords {
+		if strings.Contains(lowerMsg, keyword) {
+			return true
+		}
+	}
+
+	return false
+}

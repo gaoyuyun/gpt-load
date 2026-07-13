@@ -7,6 +7,7 @@ export interface ApiResponse<T> {
 
 // 密钥状态
 export type KeyStatus = "active" | "invalid" | undefined;
+export type KeyRuntimeStatus = "active" | "cooling" | "invalid" | "auto_disabled" | undefined;
 
 // 分组类型
 export type GroupType = "standard" | "aggregate";
@@ -21,8 +22,17 @@ export interface APIKey {
   key_value: string;
   notes?: string;
   status: KeyStatus;
+  runtime_status?: KeyRuntimeStatus;
+  priority: number;
+  is_manually_disabled: boolean;
   request_count: number;
   failure_count: number;
+  cooldown_until?: string;
+  cooldown_remaining_seconds?: number;
+  last_error_code: number;
+  last_error_message: string;
+  last_status_action: string;
+  status_reason?: string;
   last_used_at?: string;
   created_at: string;
   updated_at: string;

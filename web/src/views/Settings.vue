@@ -12,6 +12,7 @@ import {
   NIcon,
   NInput,
   NInputNumber,
+  NSelect,
   NSpace,
   NSwitch,
   NTooltip,
@@ -28,6 +29,11 @@ const formRef = ref();
 const form = ref<Record<string, string | number | boolean>>({});
 const isSaving = ref(false);
 const message = useMessage();
+const statusCodeSettingKeys = new Set([
+  "cooldown_status_codes",
+  "disable_status_codes",
+  "direct_fail_status_codes",
+]);
 
 fetchSettings();
 
@@ -97,6 +103,10 @@ function generateValidationRules(item: Setting): FormItemRule[] {
   }
   return rules;
 }
+
+function isStatusCodeSetting(key: string): boolean {
+  return statusCodeSettingKeys.has(key);
+}
 </script>
 
 <template>
@@ -154,6 +164,24 @@ function generateValidationRules(item: Setting): FormItemRule[] {
                   v-else-if="item.key === 'proxy_keys'"
                   v-model="form[item.key] as string"
                   :placeholder="t('settings.inputContent')"
+                  size="small"
+                />
+                <n-select
+                  v-else-if="item.key === 'key_selection_strategy'"
+                  v-model:value="form[item.key] as string"
+                  :options="[
+                    { label: t('settings.strategyRoundRobin'), value: 'round-robin' },
+                    { label: t('settings.strategySticky'), value: 'sticky' },
+                  ]"
+                  size="small"
+                />
+                <n-input
+                  v-else-if="isStatusCodeSetting(item.key)"
+                  v-model:value="form[item.key] as string"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                  :placeholder="t('settings.inputContent')"
+                  clearable
                   size="small"
                 />
                 <n-input

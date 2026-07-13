@@ -140,6 +140,35 @@ export const keysApi = {
     await http.put(`/keys/${keyId}/notes`, { notes }, { hideMessage: true });
   },
 
+  // 更新密钥优先级
+  async updateKeyPriority(keyId: number, priority: number): Promise<void> {
+    await http.put(`/keys/${keyId}/priority`, { priority }, { hideMessage: true });
+  },
+
+  // 批量设置密钥手动禁用状态
+  async setKeyManuallyDisabled(
+    groupId: number,
+    keyIds: number[],
+    disabled: boolean
+  ): Promise<void> {
+    await http.post("/keys/set-manually-disabled", {
+      group_id: groupId,
+      key_ids: keyIds,
+      disabled,
+    });
+  },
+
+  // 清除密钥冷却状态
+  async clearCooldown(
+    groupId: number,
+    keyIds: number[]
+  ): Promise<void> {
+    await http.post("/keys/clear-cooldown", {
+      group_id: groupId,
+      key_ids: keyIds,
+    });
+  },
+
   // 测试密钥
   async testKeys(
     group_id: number,

@@ -47,6 +47,29 @@ func validateKeysText(c *gin.Context, keysText string) bool {
 	return true
 }
 
+func enrichKeyRuntimeStatus(key *models.APIKey, now time.Time) {
+	key.RuntimeStatus = models.KeyRuntimeStatusActive
+	key.CooldownRemainingSeconds = 0
+	key.StatusReason = ""
+
+	switch {
+	case key.CooldownUntil != nil && key.CooldownUntil.After(now):
+		key.RuntimeStatus = models.KeyRuntimeStatusCooling
+		remainingSeconds := int(key.CooldownUntil.Sub(now).Seconds())
+		if remainingSeconds <= 0 {
+			remainingSeconds = 1
+		}
+		key.CooldownRemainingSeconds = remainingSeconds
+		key.StatusReason = key.LastErrorMessage
+	case key.Status == models.KeyStatusInvalid && key.LastStatusAction == models.KeyActionAutoDisable:
+		key.RuntimeStatus = models.KeyRuntimeStatusAutoDisabled
+		key.StatusReason = key.LastErrorMessage
+	case key.Status == models.KeyStatusInvalid:
+		key.RuntimeStatus = models.KeyRuntimeStatusInvalid
+		key.StatusReason = key.LastErrorMessage
+	}
+}
+
 // findGroupByID is a helper function to find a group by its ID.
 func (s *Server) findGroupByID(c *gin.Context, groupID uint) (*models.Group, bool) {
 	var group models.Group
@@ -222,6 +245,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		return
 	}
 
+	now := time.Now()
 	// Decrypt all keys for display
 	for i := range keys {
 		decryptedValue, err := s.EncryptionSvc.Decrypt(keys[i].KeyValue)
@@ -231,6 +255,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		} else {
 			keys[i].KeyValue = decryptedValue
 		}
+		enrichKeyRuntimeStatus(&keys[i], now)
 	}
 	paginatedResult.Items = keys
 
@@ -540,6 +565,145 @@ func (s *Server) UpdateKeyNotes(c *gin.Context) {
 	if err := s.DB.Model(&key).Update("notes", req.Notes).Error; err != nil {
 		response.Error(c, app_errors.ParseDBError(err))
 		return
+	}
+
+	response.Success(c, nil)
+}
+
+// ClearKeyCooldownRequest defines the payload for clearing key cooldown.
+type ClearKeyCooldownRequest struct {
+	GroupID uint `json:"group_id" binding:"required"`
+	KeyIDs  []uint `json:"key_ids" binding:"required"`
+}
+
+// ClearKeyCooldown handles manually clearing key cooldown state.
+func (s *Server) ClearKeyCooldown(c *gin.Context) {
+	var req ClearKeyCooldownRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if len(req.KeyIDs) == 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "key_ids cannot be empty"))
+		return
+	}
+
+	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+		return
+	}
+
+	for _, keyID := range req.KeyIDs {
+		if err := s.KeyProvider.ClearKeyCooldown(keyID, req.GroupID); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"keyID":   keyID,
+				"groupID": req.GroupID,
+				"error":   err,
+			}).Error("Failed to clear key cooldown")
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to clear cooldown for key %d: %v", keyID, err)))
+			return
+		}
+	}
+
+	response.Success(c, gin.H{
+		"message": fmt.Sprintf("Successfully cleared cooldown for %d key(s)", len(req.KeyIDs)),
+		"count":   len(req.KeyIDs),
+	})
+}
+
+// SetKeyManuallyDisabledRequest defines the payload for manually enabling/disabling keys.
+type SetKeyManuallyDisabledRequest struct {
+	GroupID  uint   `json:"group_id" binding:"required"`
+	KeyIDs   []uint `json:"key_ids" binding:"required"`
+	Disabled bool   `json:"disabled"`
+}
+
+// SetKeyManuallyDisabled handles manually enabling/disabling keys.
+func (s *Server) SetKeyManuallyDisabled(c *gin.Context) {
+	var req SetKeyManuallyDisabledRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if len(req.KeyIDs) == 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "key_ids cannot be empty"))
+		return
+	}
+
+	// 验证分组是否存在
+	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+		return
+	}
+
+	// 批量更新 key 的手动禁用状态
+	for _, keyID := range req.KeyIDs {
+		if err := s.KeyProvider.SetKeyManuallyDisabled(keyID, req.GroupID, req.Disabled); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"keyID":   keyID,
+				"groupID": req.GroupID,
+				"error":   err,
+			}).Error("Failed to set key manually disabled status")
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to update key %d: %v", keyID, err)))
+			return
+		}
+	}
+
+	action := "enabled"
+	if req.Disabled {
+		action = "disabled"
+	}
+
+	response.Success(c, gin.H{
+		"message": fmt.Sprintf("Successfully %s %d key(s)", action, len(req.KeyIDs)),
+		"count":   len(req.KeyIDs),
+	})
+}
+
+// UpdateKeyPriorityRequest defines the payload for updating key priority.
+type UpdateKeyPriorityRequest struct {
+	Priority int `json:"priority"`
+}
+
+// UpdateKeyPriority handles updating the priority of a specific API key.
+func (s *Server) UpdateKeyPriority(c *gin.Context) {
+	keyIDStr := c.Param("id")
+	keyID, err := strconv.Atoi(keyIDStr)
+	if err != nil || keyID <= 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, "invalid key ID format"))
+		return
+	}
+
+	var req UpdateKeyPriorityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	// Check if the key exists
+	var key models.APIKey
+	if err := s.DB.First(&key, keyID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.Error(c, app_errors.ErrResourceNotFound)
+		} else {
+			response.Error(c, app_errors.ParseDBError(err))
+		}
+		return
+	}
+
+	// Update priority
+	if err := s.DB.Model(&key).Update("priority", req.Priority).Error; err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	// 同步更新缓存
+	keyHashKey := fmt.Sprintf("key:%d", keyID)
+	if err := s.Store.HSet(keyHashKey, map[string]any{"priority": req.Priority}); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"keyID": keyID,
+			"error": err,
+		}).Warn("Failed to update key priority in cache")
 	}
 
 	response.Success(c, nil)
